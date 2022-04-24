@@ -9,8 +9,44 @@ import matplotlib.pyplot as plt
 import altair as alt
 import base64
 import mysql.connector
+import re
 
-st.set_page_config(page_title='贞德的水晶球', page_icon='🔥', initial_sidebar_state='auto', )
+st.set_page_config(page_title='贞德的水晶球', page_icon='./assets/favicon.png', initial_sidebar_state='auto', )
+
+
+# @st.cache(allow_output_mutation=True)
+# def get_base64_of_bin_file(bin_file):
+#     with open(bin_file, 'rb') as f:
+#         data = f.read()
+#     return base64.b64encode(data).decode()
+
+# def set_png_as_page_bg(png_file):
+#     bin_str = get_base64_of_bin_file(png_file)
+#     page_bg_img = '''
+#     <style>
+#     body {
+#     background-image: url("data:image/png;base64,%s");
+#     background-size: cover;
+#     }
+#     </style>
+#     ''' % bin_str
+    
+#     st.markdown(page_bg_img, unsafe_allow_html=True)
+#     return
+
+# set_png_as_page_bg('./assets/bg.png')
+
+def local_css(file_name):
+    with open(file_name) as f:
+        st.markdown(f'<style>{f.read()}</style>', unsafe_allow_html=True)
+
+
+def remote_css(url):
+    st.markdown(f'<link href="{url}" rel="stylesheet">', unsafe_allow_html=True)
+
+
+def icon(icon_name):
+    st.markdown(f'<i class="material-icons">{icon_name}</i>', unsafe_allow_html=True)
 
 @st.experimental_singleton
 def init_connection():
@@ -38,12 +74,15 @@ def read_query(query):
 # f.write(add)
 # f.close()
 # CSS to inject contained in a string
-hide_dataframe_row_index = """
-            <style>
-            .row_heading.level0 {display:none}
-            .blank {display:none}
-            </style>
-            """
+# hide_dataframe_row_index = """
+#             <style>
+#             .row_heading.level0 {display:none}
+#             .blank {display:none}
+#             </style>
+#             """
+# # Inject CSS with Markdown
+# st.markdown(hide_dataframe_row_index, unsafe_allow_html=True)
+
 hide_table_row_index = """
             <style>
             tbody th {display:none}
@@ -53,8 +92,6 @@ hide_table_row_index = """
 
 # Inject CSS with Markdown
 st.markdown(hide_table_row_index, unsafe_allow_html=True)
-# Inject CSS with Markdown
-st.markdown(hide_dataframe_row_index, unsafe_allow_html=True)
 
 def local_css(file_name):
     with open(file_name) as f:
@@ -76,47 +113,11 @@ if page == '玩家查询':
     player_list = list((pd.read_sql_query("SELECT * from tta_pulse_player;", con=conn))['player'].unique())
     names = st.multiselect('用户名', player_list)
     if len(names) > 0:
-        player_games = pd.read_sql_query("SELECT * from tta_pulse_flat_data where cgeUsername in ({name_list}) or cgeUsername in ({name_list});".format(name_list=', '.join(["'"+_+"'" for _ in names])), con=conn)
-        player_games['小时'] = (pd.to_datetime(player_games['startDate'])).dt.hour
-        player_time = player_games.groupby(player_games.小时).agg(
-            局数=('cgeUsername', 'count')
-        ).dropna().sort_index()
-        with st.expander('活跃时间'):
-            st.bar_chart(player_time)
-
-        code_df_1 = player_games.loc[(pd.isna(player_games['code']) == False) & (player_games['position'] == 1),['code', 'isWin', 'cgeUsername', 'cgeUsername_2','inc_day']]
-        code_df_2 = player_games.loc[(pd.isna(player_games['code']) == False) & (player_games['position'] == 0),['code', 'isWin_2', 'cgeUsername_2', 'cgeUsername', 'inc_day']]
-        code_df_2.columns = code_df_1.columns
-        code_df = pd.concat( \
-                    [code_df_1, code_df_2],
-                    axis = 0,
-                    ignore_index=True
-                    ).sort_values('inc_day', ascending=False).reset_index(drop=True)
-        code_df['isWin'] = np.select(
-            [
-                code_df['isWin'] == 1,
-                code_df['isWin'] == 0,
-            ],
-            [
-                '胜',
-                '负'
-            ],
-            default=''
-        )
-        code_df.columns = ['观战代码', '对局情况', '先手玩家', '后手玩家', '对局日期']
-        with st.expander('对局记录'):
-            st.table(code_df)
-
-
-if page == '观战查询':
-    player_list = list((pd.read_sql_query("SELECT * from tta_pulse_player;", con=conn))['player'].unique())
-    names = st.multiselect('用户名', player_list)
-    if len(names) > 0:
-        player_games = pd.read_sql_query("SELECT *,'胜111' as flag from tta_pulse_flat_data where code is not null and cgeUsername in ({name_list}) union all SELECT *,'负' as flag from tta_pulse_flat_data where code is not null and cgeUsername_2 in ({name_list});".format(name_list=', '.join(["'"+_+"'" for _ in names])), con=conn)
+        player_games = pd.read_sql_query("SELECT *,'胜' as flag from tta_pulse_flat_data where code is not null and cgeUsername in ({name_list}) union all SELECT *,'负' as flag from tta_pulse_flat_data where code is not null and cgeUsername_2 in ({name_list});".format(name_list=', '.join(["'"+_+"'" for _ in names])), con=conn)
         cross_detect = pd.read_sql_query("select a.code from (SELECT *,isWin as flag from tta_pulse_flat_data where cgeUsername in ({name_list})) as a inner join (SELECT *,isWin_2 as flag from tta_pulse_flat_data where cgeUsername_2 in ({name_list})) as b on a.code = b.code;".format(name_list=', '.join(["'"+_+"'" for _ in names])), con=conn)
         print('1')
         print(cross_detect.shape[0])
-        if cross_detect.shape[0] == 0: st.warning('所选择的玩家参与过同一场对局')
+        if cross_detect.shape[0] > 0: st.warning('所选择的玩家参与过同一场对局')
         player_games['小时'] = (pd.to_datetime(player_games['startDate'])).dt.hour
         player_time = player_games.groupby(player_games.小时).agg(
             局数=('cgeUsername', 'count')
@@ -132,10 +133,10 @@ if page == '观战查询':
                     axis = 0,
                     ignore_index=True
                     ).sort_values('inc_day', ascending=False).reset_index(drop=True)
-        # code_df['flag'] = np.select(
+        # code_df['isWin'] = np.select(
         #     [
-        #         code_df['flag'] == 1,
-        #         code_df['flag'] == 0,
+        #         code_df['isWin'] == 1,
+        #         code_df['isWin'] == 0,
         #     ],
         #     [
         #         '胜',
@@ -146,6 +147,75 @@ if page == '观战查询':
         code_df.columns = ['观战代码', '对局情况', '先手玩家', '后手玩家', '对局日期']
         with st.expander('对局记录'):
             st.table(code_df)
+
+
+if page == '观战查询':
+    # c1, c2 = st.columns([3,1])
+    local_css("./assets/style.css")
+    remote_css('https://fonts.googleapis.com/icon?family=Material+Icons')
+    ori_df = read_query("select *, case when position=0 then '先手' else '后手' end as pos from tta_pulse_flat_data order by inc_day desc")
+    # text = st.text_area('快速查询 (输入所需关键字，以空格或者换行符分割)')
+    # text_list = (text.replace('\n', ' ')).split(' ')
+    # if '' in text_list: text_list.remove('')
+    # print(text_list)
+    sql1 = """
+    select * from (select a.别名 as name, b.name_cn, b.age from tta_card_alias as a
+    left join
+    (select * from tta_card_main) as b
+    on a.主名 = b.name_cn
+    where b.type = 'leader') as a
+    union
+    select name_cn, name_cn, age from tta_card_main where type = 'leader'
+    order by age, name_cn
+    """
+    leader_df = pd.read_sql_query(sql1, con=conn)
+    leader_list = list(leader_df['name'].unique())
+    leader_names = st.multiselect('领袖名称', leader_list)
+    leader_actual_names = list(leader_df.loc[leader_df['name'].isin(leader_names),'name_cn'].unique())
+    if len(leader_names) > 0:
+        leader_code = read_query('select distinct code from tta_pulse_leader_detail where leader_name in ({leader})'.format(leader=', '.join(["'"+_+"'" for _ in leader_actual_names])))
+        ori_df = ori_df.merge(leader_code, on='code', how='inner', suffixes=['', '_drop'])
+        
+    sql2 = """
+    select * from (select a.别名 as name, b.name_cn, b.age from tta_card_alias as a
+    left join
+    (select * from tta_card_main) as b
+    on a.主名 = b.name_cn
+    where b.type = 'wonder') as a
+    union
+    select name_cn, name_cn, age from tta_card_main where type = 'wonder'
+    order by age, name_cn
+    """
+    wonder_df = pd.read_sql_query(sql2, con=conn)
+    wonder_list = list(wonder_df['name'].unique())    
+    wonder_names = st.multiselect('奇迹名称', wonder_list)
+    wonder_actual_names = list(wonder_df.loc[wonder_df['name'].isin(wonder_names),'name_cn'].unique())
+    if len(wonder_names) > 0:
+        wonder_code = read_query('select distinct code from tta_pulse_wonder_detail where wonder_name in ({wonder})'.format(wonder=', '.join(["'"+_+"'" for _ in wonder_actual_names])))
+        ori_df = ori_df.merge(wonder_code, on='code', how='inner', suffixes=['', '_drop'])
+
+    if len(leader_names) > 0 or len(wonder_names) > 0: st.warning('领袖奇迹筛选为测试功能，仅包含玩家手工统计的对局。')
+
+    with st.expander('日期筛选'):
+        start_date = st.date_input('输入起始日期', datetime.date(2021, 1, 1))
+        end_date = st.date_input('输入终止日期', datetime.date.today())
+    
+        
+   
+    button_clicked = st.button("OK")
+    player_list = list((pd.read_sql_query("SELECT * from tta_pulse_player;", con=conn))['player'].unique())
+    names = st.multiselect('用户名', player_list)
+    ori_df = ori_df.loc[:,['code', 'cgeUsername', 'cgeUsername_2', 'pos', 'inc_day']]
+    
+    # ori_df_group = ori_df \
+    # .groupby(['cn', 'name']) \
+    # .agg(
+    # position=('sum_position', 'sum'),
+    # playerScore=('sum_playerScore', 'sum'),
+    # generations=('sum_generations', 'sum'),
+    # total=('total', 'sum')
+    # ori_df.columns = ['观战代码', '胜方', '败方', '获胜顺位', '对局日期']
+    st.dataframe(ori_df)
 #         # @st.cache
 #         def getPlayersCard(name_list):
 #             df = pd.read_csv('./playersCardRank.csv')
