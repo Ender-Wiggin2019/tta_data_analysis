@@ -1,0 +1,10 @@
+*.csv
+*.txt
+*.xlsx
+*.ipynb
+*.sql
+.streamlit
+__pycache__
+.ipynb_checkpoints
+*.toml
+test.py
