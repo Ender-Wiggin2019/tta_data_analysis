@@ -15,7 +15,13 @@ import re
 
 st.set_page_config(page_title='贞德的水晶球', page_icon='./assets/favicon.png', initial_sidebar_state='auto', )
 
-
+f = open('./count.txt')
+count = f.read()
+f.close()
+f = open('./count.txt', 'w')
+add = str(int(count) + 1)
+f.write(add)
+f.close()
 # @st.cache(allow_output_mutation=True)
 # def get_base64_of_bin_file(bin_file):
 #     with open(bin_file, 'rb') as f:
@@ -50,6 +56,11 @@ def remote_css(url):
 def icon(icon_name):
     st.markdown(f'<i class="material-icons">{icon_name}</i>', unsafe_allow_html=True)
 
+@st.cache
+def convert_df(df):
+     # IMPORTANT: Cache the conversion to prevent computation on every rerun
+     return df.to_csv().encode('utf-8')
+ 
 @st.experimental_singleton
 def init_connection():
     return mysql.connector.connect(**st.secrets["mysql"])
@@ -108,7 +119,7 @@ def icon(icon_name):
     st.markdown(f'<i class="material-icons">{icon_name}</i>', unsafe_allow_html=True)
 
 
-page = st.sidebar.selectbox("选择类别", ['卡牌查询', '玩家查询', '观战查询', '网站介绍'], index=3)
+page = st.sidebar.selectbox("选择类别", ['玩家查询', '观战查询', '卡牌查询', '提交对局', '网站介绍'], index=4)
 
 
 if page == '玩家查询':
@@ -170,32 +181,15 @@ if page == '观战查询':
     # c1, c2 = st.columns([3,1])
     local_css("./assets/style.css")
     remote_css('https://fonts.googleapis.com/icon?family=Material+Icons')
-    ori_df = read_query("select *, case when position=0 then '先手' else '后手' end as pos from tta_pulse_flat_data order by inc_day desc")
+    with st.spinner(text="正在获取对局数据..."):
+        ori_df = read_query("select *, case when position=0 then '先手' else '后手' end as pos, coalesce(code, '无代码') as code_add from tta_pulse_flat_data order by inc_day desc")
+    
+    ori_df['startDate'] = (pd.to_datetime(ori_df['startDate'])).dt.date
     # text = st.text_area('快速查询 (输入所需关键字，以空格或者换行符分割)')
     # text_list = (text.replace('\n', ' ')).split(' ')
     # if '' in text_list: text_list.remove('')
     # print(text_list)
-    sql1 = """
-    select name_cn as name, name_cn, age from tta_card_main where type = 'leader'
-    order by age, name_cn
-    """
-    # sql1 = """
-    # select * from (select a.别名 as name, b.name_cn, b.age from tta_card_alias as a
-    # left join
-    # (select * from tta_card_main) as b
-    # on a.主名 = b.name_cn
-    # where b.type = 'leader') as a
-    # union
-    # select name_cn, name_cn, age from tta_card_main where type = 'leader'
-    # order by age, name_cn
-    # """
-    leader_df = pd.read_sql_query(sql1, con=conn)
-    leader_list = list(leader_df['name'].unique())
-    leader_names = st.multiselect('领袖名称', leader_list)
-    leader_actual_names = list(leader_df.loc[leader_df['name'].isin(leader_names),'name_cn'].unique())
-    if len(leader_names) > 0:
-        leader_code = read_query('select distinct code from tta_pulse_leader_detail where leader_name in ({leader})'.format(leader=', '.join(["'"+_+"'" for _ in leader_actual_names])))
-        ori_df = ori_df.merge(leader_code, on='code', how='inner', suffixes=['', '_drop'])
+
         
     # sql2 = """
     # select * from (select a.别名 as name, b.name_cn, b.age from tta_card_alias as a
@@ -207,30 +201,70 @@ if page == '观战查询':
     # select name_cn, name_cn, age from tta_card_main where type = 'wonder'
     # order by age, name_cn
     # """
-    sql2 = """
-    select name_cn as name, name_cn, age from tta_card_main where type = 'wonder'
-    order by age, name_cn
-    """
-    wonder_df = pd.read_sql_query(sql2, con=conn)
-    wonder_list = list(wonder_df['name'].unique())    
-    wonder_names = st.multiselect('奇迹名称', wonder_list)
-    wonder_actual_names = list(wonder_df.loc[wonder_df['name'].isin(wonder_names),'name_cn'].unique())
-    if len(wonder_names) > 0:
-        wonder_code = read_query('select distinct code from tta_pulse_wonder_detail where wonder_name in ({wonder})'.format(wonder=', '.join(["'"+_+"'" for _ in wonder_actual_names])))
-        ori_df = ori_df.merge(wonder_code, on='code', how='inner', suffixes=['', '_drop'])
 
-    if len(leader_names) > 0 or len(wonder_names) > 0: st.warning('领袖奇迹筛选为测试功能，仅包含玩家手工统计的对局。')
 
     with st.expander('日期筛选'):
-        start_date = st.date_input('输入起始日期', datetime.date(2021, 1, 1))
-        end_date = st.date_input('输入终止日期', datetime.date.today())
-    
+        start_date = st.date_input('输入开始日期', datetime.date(2021, 1, 1))
+        end_date = st.date_input('输入结束日期', datetime.date.today())
+        
+        ori_df = ori_df.loc[(ori_df['startDate'] >= start_date) & (ori_df['startDate'] <= end_date)]
         
    
-    button_clicked = st.button("OK")
-    player_list = list((pd.read_sql_query("SELECT * from tta_pulse_player;", con=conn))['player'].unique())
-    names = st.multiselect('用户名', player_list)
-    ori_df = ori_df.loc[:,['code', 'cgeUsername', 'cgeUsername_2', 'pos', 'inc_day']]
+    player_list = list((pd.read_sql_query("SELECT distinct cgeUsername as player from tta_pulse_data;", con=conn))['player'].unique())
+    with st.expander('玩家筛选'):
+        inner_names = st.multiselect('选择玩家的用户名', player_list)
+        if len(inner_names) >= 2:
+            ori_df = ori_df[(ori_df['cgeUsername'].isin(inner_names)) & (ori_df['cgeUsername_2'].isin(inner_names))]
+        elif len(inner_names) == 1:
+            ori_df = ori_df[(ori_df['cgeUsername'].isin(inner_names)) | (ori_df['cgeUsername_2'].isin(inner_names))]
+            st.warning('只选择一名玩家，将会展示所有仅包含该玩家的对局。')
+        else: st.warning('该选项将会选择所有对局中仅包含所选用户的对局.')
+ 
+ 
+    with st.expander('领袖奇迹筛选'):
+        sql1 = """
+        select name_cn as name, name_cn, age from tta_card_main where type = 'leader'
+        order by age, name_cn
+        """
+        sql2 = """
+        select name_cn as name, name_cn, age from tta_card_main where type = 'wonder'
+        order by age, name_cn
+        """
+        leader_df = pd.read_sql_query(sql1, con=conn)
+        leader_list = list(leader_df['name'].unique())
+        leader_names = st.multiselect('领袖名称', leader_list)
+        leader_actual_names = list(leader_df.loc[leader_df['name'].isin(leader_names),'name_cn'].unique())
+        if len(leader_names) > 0:
+            leader_code = read_query('select distinct code from tta_pulse_leader_detail where leader_name in ({leader})'.format(leader=', '.join(["'"+_+"'" for _ in leader_actual_names])))
+            ori_df = ori_df.merge(leader_code, on='code', how='inner', suffixes=['', '_drop'])
+        wonder_df = pd.read_sql_query(sql2, con=conn)
+        wonder_list = list(wonder_df['name'].unique())    
+        wonder_names = st.multiselect('奇迹名称', wonder_list)
+        wonder_actual_names = list(wonder_df.loc[wonder_df['name'].isin(wonder_names),'name_cn'].unique())
+        if len(wonder_names) > 0:
+            wonder_code = read_query('select distinct code from tta_pulse_wonder_detail where wonder_name in ({wonder})'.format(wonder=', '.join(["'"+_+"'" for _ in wonder_actual_names])))
+            ori_df = ori_df.merge(wonder_code, on='code', how='inner', suffixes=['', '_drop'])
+
+        if len(leader_names) > 0 or len(wonder_names) > 0: st.warning('领袖奇迹筛选为测试功能，仅包含玩家手工统计的对局。')
+        button_clicked = st.button("OK")
+                   
+    lose_df = ori_df.loc[:,['cgeUsername_2', 'isWin_2']]
+    lose_df.columns = ['cgeUsername', 'isWin']
+    player_win_rate_df = pd.concat([ori_df.loc[:,['cgeUsername', 'isWin']], lose_df], axis=0)
+    # st.text(str(player_win_rate_df.columns))
+    player_win_rate_df_group = player_win_rate_df \
+        .groupby('cgeUsername') \
+        .agg(
+            win_times=('isWin', 'sum'),
+            total_times=('isWin', 'count')
+        ).reset_index()
+    player_win_rate_df_group['win_rate'] = player_win_rate_df_group['win_times'] / player_win_rate_df_group['total_times']
+    player_win_rate_df_group = player_win_rate_df_group.sort_values(['win_times', 'win_rate'], ascending=[False, False])
+    player_win_rate_df_group.columns = ['用户名', '胜场', '局数', '胜率']
+
+    ori_df = ori_df.loc[:,['code_add', 'cgeUsername', 'cgeUsername_2', 'pos', 'inc_day']]
+    
+    ori_df.columns = ['观战代码', '胜方', '败方', '胜方顺位', '游戏日期']
     
     # ori_df_group = ori_df \
     # .groupby(['cn', 'name']) \
@@ -240,7 +274,75 @@ if page == '观战查询':
     # generations=('sum_generations', 'sum'),
     # total=('total', 'sum')
     # ori_df.columns = ['观战代码', '胜方', '败方', '获胜顺位', '对局日期']
-    st.dataframe(ori_df)
+    if ori_df.shape[0] == 0:
+        st.error('所选筛选组合没有数据')
+    else:
+        st.dataframe(ori_df)
+        st.table(player_win_rate_df_group.head(20).style.format(
+            {'胜场': '{:.0f}', '总数': '{:.0f}', '胜率': '{:.0%}'}))
+    
+    
+    
+elif page == '卡牌查询':
+    st.markdown('还没做')
+    
+    
+elif page == '提交对局':
+    with st.form("game_submit"):
+        st.write("请按照相应规则提交对局")
+        
+        player_list = list((pd.read_sql_query("SELECT distinct cgeUsername as player from tta_pulse_data;", con=conn))['player'].unique())
+        is_valid = True
+        code = st.text_input('请输入对局代码', max_chars=8)
+        if len(code) != 0 and len(code) != 8:
+            st.warning('代码必须是8位字符')
+            is_valid = False
+        elif len(code) == 0:
+            is_valid = False   
+        first_player = st.multiselect('先手玩家', player_list)
+        second_player = st.multiselect('后手玩家', player_list)
+        if first_player == second_player and len(first_player) > 0:
+            st.error('玩家名称必须不同')
+            is_valid = False
+        
+        if len(first_player) == 0 or len(second_player) == 0:
+            is_valid = False
+        elif len(first_player) != 1 or len(second_player) != 1:
+            is_valid = False
+            st.error('没有选择正确数量的玩家')
+        win_player = st.selectbox('选择获胜方', ['先手', '后手'])
+        
+        src = st.selectbox('选择对局来源', ['Pulse', '官方锦标赛', '日常对局'])
+        if len(src) == 0:
+            is_valid = False
+        # Every form must have a submit button.
+        submitted = st.form_submit_button("提交")
+        if submitted and is_valid == True:
+            st.success("提交成功")
+        elif submitted and is_valid == False:
+            st.error("填写有误，请检查")
+    st.text('测试功能，实际上现在提交了也没用')
+    
+    
+elif page == '网站介绍':
+    st.image('./assets/joan.png')
+    st.markdown("""
+   
+    *时间旅行者贞德发现自己不但可以看到未来的事件，还可以...*
+    
+    *看到过去发生的所有对局！*
+    &nbsp;
+    
+    &nbsp;
+    
+    &nbsp;
+    
+    本项目由国内历史巨轮爱好者创建，主要通过[历史巨轮天梯平台](https://ttapulse.com/)获取数据，玩家可以查看个人胜率、领袖奇迹胜率以及自己所感兴趣的对局。
+    目前属于开发测试阶段，建议使用电脑访问，手机访问可能存在样式问题。如果有想法和建议欢迎提出。
+        
+    本网站已被访问%s次。
+    """ % (add))
+
 #         # @st.cache
 #         def getPlayersCard(name_list):
 #             df = pd.read_csv('./playersCardRank.csv')
