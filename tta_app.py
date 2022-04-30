@@ -3,6 +3,8 @@ import numpy as np
 import hashlib
 # import hydralit_components as hc
 import datetime
+from datetime import timezone
+import pytz
 import pandas as pd
 from PIL import Image
 import matplotlib.pyplot as plt
@@ -106,27 +108,30 @@ def icon(icon_name):
     st.markdown(f'<i class="material-icons">{icon_name}</i>', unsafe_allow_html=True)
 
 
-page = st.sidebar.selectbox("选择类别", ['卡牌查询', '玩家查询', '观战查询', '网站介绍'], index=1)
+page = st.sidebar.selectbox("选择类别", ['卡牌查询', '玩家查询', '观战查询', '网站介绍'], index=3)
 
 
 if page == '玩家查询':
-    player_list = list((pd.read_sql_query("SELECT * from tta_pulse_player;", con=conn))['player'].unique())
+    player_list = list((pd.read_sql_query("SELECT distinct cgeUsername as player from tta_pulse_data;", con=conn))['player'].unique())
     names = st.multiselect('用户名', player_list)
     if len(names) > 0:
-        player_games = pd.read_sql_query("SELECT *,'胜' as flag from tta_pulse_flat_data where code is not null and cgeUsername in ({name_list}) union all SELECT *,'负' as flag from tta_pulse_flat_data where code is not null and cgeUsername_2 in ({name_list});".format(name_list=', '.join(["'"+_+"'" for _ in names])), con=conn)
+        player_games = pd.read_sql_query("SELECT *,'胜' as flag, coalesce(code, '无代码') as code_add from tta_pulse_flat_data where cgeUsername in ({name_list}) union all SELECT *,'负' as flag, coalesce(code, '无代码') as code_add from tta_pulse_flat_data where cgeUsername_2 in ({name_list});".format(name_list=', '.join(["'"+_+"'" for _ in names])), con=conn)
         cross_detect = pd.read_sql_query("select a.code from (SELECT *,isWin as flag from tta_pulse_flat_data where cgeUsername in ({name_list})) as a inner join (SELECT *,isWin_2 as flag from tta_pulse_flat_data where cgeUsername_2 in ({name_list})) as b on a.code = b.code;".format(name_list=', '.join(["'"+_+"'" for _ in names])), con=conn)
         print('1')
         print(cross_detect.shape[0])
         if cross_detect.shape[0] > 0: st.warning('所选择的玩家参与过同一场对局')
-        player_games['小时'] = (pd.to_datetime(player_games['startDate'])).dt.hour
+        player_games['startDate'] = (pd.to_datetime(player_games['startDate'])).dt.tz_localize(timezone.utc)
+        player_games['startDate'] = player_games['startDate'].dt.tz_convert(pytz.timezone('Asia/Shanghai'))
+        # player_games['小时'] = (pd.to_datetime(player_games['startDate'])).dt.hour
+        player_games['小时'] = player_games['startDate'].dt.hour
         player_time = player_games.groupby(player_games.小时).agg(
             局数=('cgeUsername', 'count')
         ).dropna().sort_index()
         with st.expander('活跃时间'):
             st.bar_chart(player_time)
 
-        code_df_1 = player_games.loc[(pd.isna(player_games['code']) == False) & (player_games['position'] == 0),['code', 'flag', 'cgeUsername', 'cgeUsername_2','inc_day']]
-        code_df_2 = player_games.loc[(pd.isna(player_games['code']) == False) & (player_games['position'] == 1),['code', 'flag', 'cgeUsername_2', 'cgeUsername', 'inc_day']]
+        code_df_1 = player_games.loc[(pd.isna(player_games['code_add']) == False) & (player_games['position'] == 0),['code_add', 'flag', 'cgeUsername', 'cgeUsername_2','inc_day']]
+        code_df_2 = player_games.loc[(pd.isna(player_games['code_add']) == False) & (player_games['position'] == 1),['code_add', 'flag', 'cgeUsername_2', 'cgeUsername', 'inc_day']]
         code_df_2.columns = code_df_1.columns
         code_df = pd.concat( \
                     [code_df_1, code_df_2],
@@ -147,6 +152,18 @@ if page == '玩家查询':
         code_df.columns = ['观战代码', '对局情况', '先手玩家', '后手玩家', '对局日期']
         with st.expander('对局记录'):
             st.table(code_df)
+        with st.expander('交战情况'):
+            st.warning('请确保所选用户名均为同一位玩家')
+            win_check = pd.read_sql_query("""
+                            select cgeUsername_2 as "对手", sum(flag) as "胜场", count(flag) as "总数", round(sum(flag)/count(flag),2) as "胜率"
+                            from
+                            (
+                                select cgeUsername, cgeUsername_2, 1 as flag from tta_pulse_flat_data where cgeUsername in ({name_list}) union all SELECT cgeUsername_2, cgeUsername, 0 as flag from tta_pulse_flat_data where cgeUsername_2 in ({name_list})
+                            ) as a group by cgeUsername_2 order by 总数 desc;
+                        """.format(name_list=', '.join(["'"+_+"'" for _ in names])), con=conn)
+            
+            st.table(win_check.style.format(
+                    {'胜场': '{:.0f}', '总数': '{:.0f}', '胜率': '{:.0%}'}))
 
 
 if page == '观战查询':
@@ -159,15 +176,19 @@ if page == '观战查询':
     # if '' in text_list: text_list.remove('')
     # print(text_list)
     sql1 = """
-    select * from (select a.别名 as name, b.name_cn, b.age from tta_card_alias as a
-    left join
-    (select * from tta_card_main) as b
-    on a.主名 = b.name_cn
-    where b.type = 'leader') as a
-    union
-    select name_cn, name_cn, age from tta_card_main where type = 'leader'
+    select name_cn as name, name_cn, age from tta_card_main where type = 'leader'
     order by age, name_cn
     """
+    # sql1 = """
+    # select * from (select a.别名 as name, b.name_cn, b.age from tta_card_alias as a
+    # left join
+    # (select * from tta_card_main) as b
+    # on a.主名 = b.name_cn
+    # where b.type = 'leader') as a
+    # union
+    # select name_cn, name_cn, age from tta_card_main where type = 'leader'
+    # order by age, name_cn
+    # """
     leader_df = pd.read_sql_query(sql1, con=conn)
     leader_list = list(leader_df['name'].unique())
     leader_names = st.multiselect('领袖名称', leader_list)
@@ -176,14 +197,18 @@ if page == '观战查询':
         leader_code = read_query('select distinct code from tta_pulse_leader_detail where leader_name in ({leader})'.format(leader=', '.join(["'"+_+"'" for _ in leader_actual_names])))
         ori_df = ori_df.merge(leader_code, on='code', how='inner', suffixes=['', '_drop'])
         
+    # sql2 = """
+    # select * from (select a.别名 as name, b.name_cn, b.age from tta_card_alias as a
+    # left join
+    # (select * from tta_card_main) as b
+    # on a.主名 = b.name_cn
+    # where b.type = 'wonder') as a
+    # union
+    # select name_cn, name_cn, age from tta_card_main where type = 'wonder'
+    # order by age, name_cn
+    # """
     sql2 = """
-    select * from (select a.别名 as name, b.name_cn, b.age from tta_card_alias as a
-    left join
-    (select * from tta_card_main) as b
-    on a.主名 = b.name_cn
-    where b.type = 'wonder') as a
-    union
-    select name_cn, name_cn, age from tta_card_main where type = 'wonder'
+    select name_cn as name, name_cn, age from tta_card_main where type = 'wonder'
     order by age, name_cn
     """
     wonder_df = pd.read_sql_query(sql2, con=conn)
