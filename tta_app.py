@@ -12,6 +12,8 @@ import altair as alt
 import base64
 import mysql.connector
 import re
+from st_aggrid import GridOptionsBuilder, AgGrid, GridUpdateMode, DataReturnMode, JsCode
+from sqlalchemy import create_engine
 
 st.set_page_config(page_title='贞德的水晶球', page_icon='./assets/favicon.png', initial_sidebar_state='auto', )
 
@@ -56,6 +58,11 @@ def remote_css(url):
 def icon(icon_name):
     st.markdown(f'<i class="material-icons">{icon_name}</i>', unsafe_allow_html=True)
 
+def space(num_lines=1):
+    """Adds empty lines to the Streamlit app."""
+    for _ in range(num_lines):
+        st.write("")
+
 @st.cache
 def convert_df(df):
      # IMPORTANT: Cache the conversion to prevent computation on every rerun
@@ -65,8 +72,13 @@ def convert_df(df):
 def init_connection():
     return mysql.connector.connect(**st.secrets["mysql"])
 
-conn = init_connection()
+@st.experimental_singleton
+def init_engine(host, database, user, password):
+    return create_engine("mysql+mysqlconnector://{user}:{pw}@{host}/{db}"
+				.format(host=host, db=database, user=user, pw=password))
 
+conn = init_connection()
+engine = init_engine(st.secrets["mysql"]['host'], st.secrets["mysql"]['database'], st.secrets["mysql"]['user'], st.secrets["mysql"]['password'])
 
 @st.experimental_memo(ttl=600)
 def run_query(query):
@@ -79,6 +91,11 @@ def run_query(query):
 def read_query(query):
     conn.reconnect()
     return pd.read_sql_query(query, con=conn)
+
+
+@st.experimental_memo(ttl=600)
+def write_query(df, table_name):
+    return df.to_sql(table_name, con=engine, if_exists='append', index=False)
 # f = open('./count.txt')
 # count = f.read()
 # f.close()
@@ -204,7 +221,7 @@ if page == '观战查询':
 
 
     with st.expander('日期筛选'):
-        start_date = st.date_input('输入开始日期', datetime.date(2021, 1, 1))
+        start_date = st.date_input('输入开始日期', datetime.date(2022, 3, 4))
         end_date = st.date_input('输入结束日期', datetime.date.today())
         
         ori_df = ori_df.loc[(ori_df['startDate'] >= start_date) & (ori_df['startDate'] <= end_date)]
@@ -278,8 +295,18 @@ if page == '观战查询':
         st.error('所选筛选组合没有数据')
     else:
         st.dataframe(ori_df)
-        st.table(player_win_rate_df_group.head(20).style.format(
-            {'胜场': '{:.0f}', '总数': '{:.0f}', '胜率': '{:.0%}'}))
+        with st.expander('玩家胜率'):
+            mini_num = st.slider('选择入选所需要的最小局数',1,100)
+            player_win_rate_df_group['胜率'] = player_win_rate_df_group['胜率'].mul(100).round(1).astype(str).add(' %')
+            player_win_rate_df_group = player_win_rate_df_group.loc[player_win_rate_df_group['局数'] >= mini_num].sort_values(['胜率', '局数'], ascending=[False, False]).reset_index(drop=True)
+            # st.dataframe(player_win_rate_df_group.style.format(
+            #     {'胜场': '{:.0f}', '局数': '{:.0f}', '胜率': '{:.0%}'}))
+            # player_win_rate_df_group = player_win_rate_df_group.style.format({'胜场': '{:.0f}', '局数': '{:.0f}', '胜率': '{:.0%}'})
+            AgGrid(
+                player_win_rate_df_group, 
+                width='100%',
+                allow_unsafe_jscode=True, #Set it to True to allow jsfunction to be injected
+                )
     
     
     
@@ -339,9 +366,44 @@ elif page == '网站介绍':
     
     本项目由国内历史巨轮爱好者创建，主要通过[历史巨轮天梯平台](https://ttapulse.com/)获取数据，玩家可以查看个人胜率、领袖奇迹胜率以及自己所感兴趣的对局。
     目前属于开发测试阶段，建议使用电脑访问，手机访问可能存在样式问题。如果有想法和建议欢迎提出。
-        
+    
     本网站已被访问%s次。
     """ % (add))
+    with st.expander("💬 Open comments", expanded=True):
+
+    # # Show comments
+
+        st.write("**Comments:**")
+        COMMENT_TEMPLATE_MD = """{} - {}
+        
+        > {}"""
+        comment_df = read_query("select * from tta_app_comments order by create_time desc limit 20")
+        if comment_df.shape[0] == 0: st.text('NO DATA')
+        for i, v in comment_df.iterrows():
+            st.markdown(COMMENT_TEMPLATE_MD.format(v['name'], v['create_time'], v['content']))
+
+            is_last = i == comment_df.shape[0]
+            is_new = "just_posted" in st.session_state and is_last
+            if is_new:
+                st.success("☝️ Your comment was successfully posted.")
+
+        space(2)
+
+        # Insert comment
+
+        st.write("**提交你的评论:**")
+        form = st.form("评论")
+        name = form.text_input("你的昵称")
+        comment = form.text_area("评论")
+        submit = form.form_submit_button("提交评论")
+
+        if submit:
+            date = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            new_comment = pd.DataFrame([{"name": name, "create_time": date, "content": comment}])
+            write_query(new_comment, 'tta_app_comments')
+            if "just_posted" not in st.session_state:
+                st.session_state["just_posted"] = True
+            st.experimental_rerun()
 
 #         # @st.cache
 #         def getPlayersCard(name_list):
