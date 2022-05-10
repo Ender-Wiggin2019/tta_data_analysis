@@ -14,16 +14,31 @@ import mysql.connector
 import re
 from st_aggrid import GridOptionsBuilder, AgGrid, GridUpdateMode, DataReturnMode, JsCode
 from sqlalchemy import create_engine
+from streamlit.components.v1 import html
 
 st.set_page_config(page_title='贞德的水晶球', page_icon='./assets/favicon.png', initial_sidebar_state='auto', )
 
-f = open('./count.txt')
-count = f.read()
-f.close()
-f = open('./count.txt', 'w')
-add = str(int(count) + 1)
-f.write(add)
-f.close()
+baidu_statistics = """
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "https://hm.baidu.com/hm.js?d5b74d509d95af6e641d6f3fbd51d734";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+"""
+
+html(baidu_statistics)
+
+# f = open('./count.txt')
+# count = f.read()
+# f.close()
+# f = open('./count.txt', 'w')
+# add = str(int(count) + 1)
+# f.write(add)
+# f.close()
 # @st.cache(allow_output_mutation=True)
 # def get_base64_of_bin_file(bin_file):
 #     with open(bin_file, 'rb') as f:
@@ -96,6 +111,10 @@ def read_query(query):
 @st.experimental_memo(ttl=600)
 def write_query(df, table_name):
     return df.to_sql(table_name, con=engine, if_exists='append', index=False)
+
+@st.experimental_memo(ttl=600)
+def rewrite_query(df, table_name):
+    return df.to_sql(table_name, con=engine, if_exists='replace', index=False)
 # f = open('./count.txt')
 # count = f.read()
 # f.close()
@@ -297,6 +316,8 @@ if page == '观战查询':
         st.dataframe(ori_df)
         with st.expander('玩家胜率'):
             mini_num = st.slider('选择入选所需要的最小局数',1,100)
+            mini_rate = st.slider('选择入选所需要的最低胜率',10,100)
+            player_win_rate_df_group = player_win_rate_df_group.loc[player_win_rate_df_group['胜率'] >= mini_rate/100] 
             player_win_rate_df_group['胜率'] = player_win_rate_df_group['胜率'].mul(100).round(1).astype(str).add(' %')
             player_win_rate_df_group = player_win_rate_df_group.loc[player_win_rate_df_group['局数'] >= mini_num].sort_values(['胜率', '局数'], ascending=[False, False]).reset_index(drop=True)
             # st.dataframe(player_win_rate_df_group.style.format(
@@ -339,16 +360,69 @@ elif page == '提交对局':
             st.error('没有选择正确数量的玩家')
         win_player = st.selectbox('选择获胜方', ['先手', '后手'])
         
+        sql1 = """
+        select name_cn as name, name_cn, age from tta_card_main where type = 'leader'
+        order by age, name_cn
+        """
+        sql2 = """
+        select name_cn as name, name_cn, age from tta_card_main where type = 'wonder'
+        order by age, name_cn
+        """
+        leader_df = pd.read_sql_query(sql1, con=conn)
+        leader_list = list(leader_df['name'].unique())
+        wonder_df = pd.read_sql_query(sql2, con=conn)
+        wonder_list = list(wonder_df['name'].unique())    
+        first_leader_names = st.multiselect('先手领袖', leader_list)
+        first_wonder_names = st.multiselect('先手奇迹', wonder_list)
+        second_leader_names = st.multiselect('后手领袖', leader_list)
+        second_wonder_names = st.multiselect('后手奇迹', wonder_list)
+        
         src = st.selectbox('选择对局来源', ['Pulse', '官方锦标赛', '日常对局'])
         if len(src) == 0:
             is_valid = False
         # Every form must have a submit button.
         submitted = st.form_submit_button("提交")
         if submitted and is_valid == True:
+            final_list = [code, first_player[0], second_player[0], win_player]
+            for i in range(4):
+                if i < len(first_leader_names):
+                    final_list.append(first_leader_names[i])
+                else:
+                    final_list.append('无')
+                
+            for i in range(4):
+                if i < len(second_leader_names):
+                    final_list.append(second_leader_names[i])
+                else:
+                    final_list.append('无')
+
+            for i in range(8):
+                if i < len(first_wonder_names):
+                    final_list.append(first_wonder_names[i])
+                else:
+                    final_list.append('无')
+
+            for i in range(8):
+                if i < len(second_wonder_names):
+                    final_list.append(second_wonder_names[i])
+                else:
+                    final_list.append('无')
+            final_list.append(src)
+            final_list.append(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+            
+            final_str = ''
+            for i in final_list:
+                if i != '无':
+                    final_str += i
+                    final_str += ' '
+            st.info(final_str)
+            final_header = ['code', 'first_player', 'second_player', 'win_pos', 'w_l_1', 'w_l_2', 'w_l_3', 'w_l_4', 'l_l_1', 'l_l_2', 'l_l_3', 'l_l_4', 'w_w_1', 'w_w_2', 'w_w_3', 'w_w_4', 'w_w_5', 'w_w_6', 'w_w_7', 'w_w_8', 'l_w_1', 'l_w_2', 'l_w_3', 'l_w_4', 'l_w_5', 'l_w_6', 'l_w_7', 'l_w_8', 'src', 'create_time']
+            df = pd.DataFrame([final_list], columns=final_header)
+            rewrite_query(df, 'tta_game_result')
+            # st.table(df)
             st.success("提交成功")
         elif submitted and is_valid == False:
             st.error("填写有误，请检查")
-    st.text('测试功能，实际上现在提交了也没用')
     
     
 elif page == '网站介绍':
@@ -367,8 +441,8 @@ elif page == '网站介绍':
     本项目由国内历史巨轮爱好者创建，主要通过[历史巨轮天梯平台](https://ttapulse.com/)获取数据，玩家可以查看个人胜率、领袖奇迹胜率以及自己所感兴趣的对局。
     目前属于开发测试阶段，建议使用电脑访问，手机访问可能存在样式问题。如果有想法和建议欢迎提出。
     
-    本网站已被访问%s次。
-    """ % (add))
+    """)
+
     with st.expander("💬 Open comments", expanded=True):
 
     # # Show comments
@@ -404,196 +478,3 @@ elif page == '网站介绍':
             if "just_posted" not in st.session_state:
                 st.session_state["just_posted"] = True
             st.experimental_rerun()
-
-#         # @st.cache
-#         def getPlayersCard(name_list):
-#             df = pd.read_csv('./playersCardRank.csv')
-#             res = df.loc[df['player'].isin(name_list)]
-#             res_group = res \
-#                 .groupby(['cn', 'name']) \
-#                 .agg(
-#                 position=('sum_position', 'sum'),
-#                 playerScore=('sum_playerScore', 'sum'),
-#                 generations=('sum_generations', 'sum'),
-#                 total=('total', 'sum')
-#             ) \
-#                 .dropna()
-#             res_group['position'] = res_group['position'] / res_group['total']
-#             res_group['playerScore'] = res_group['playerScore'] / res_group['total']
-#             res_group['generations'] = res_group['generations'] / res_group['total']
-#             res_group = res_group.sort_values(['total', 'position'], ascending=[False, True]).reset_index()
-#             res_group.columns = ['卡牌中文', '卡牌英文', '位次', '得分', '时代', '打出次数']
-
-#             return res_group.drop('卡牌英文', axis=1).head(20).round(2)
-
-
-#         # @st.cache
-#         def getPlayerNumPlayerResult(df, name_list, player_num=4):
-#             """
-#             主键: game_id, player
-#             """
-#             # df = df.loc[(df['players'] == player_num) & (df['player'].isin(name_list))].reset_index(drop=True)
-#             df = df.loc[(df['players'] == player_num)].reset_index(drop=True)
-#             for i in range(1, player_num + 1):
-#                 player_idx = 'player' + str(i)
-#                 # print(df[player_idx].head())
-#                 # player_df_pre = df[player_idx].apply(lambda x:eval(x))
-#                 # print(player_idx)
-#                 # player_df = pd.json_normalize(player_df_pre).reset_index(drop=True)
-#                 player_df = pd.json_normalize(df[player_idx].apply(lambda x: eval(x))).reset_index(drop=True)
-#                 if i == 1:
-#                     res = pd.concat([df, player_df.reindex(df.index)], axis=1)
-#                 else:
-#                     mid = pd.concat([df, player_df.reindex(df.index)], axis=1)
-#                     res = pd.concat([res, mid], axis=0, ignore_index=True)
-#                     # print((mid.loc[pd.isna(mid['player']) == False]).shape[0])
-#                 # df = pd.concat([df, pd.json_normalize(df[player_idx])],axis=1)
-#             res.drop(['player' + str(i) for i in range(1, 7)], axis=1, inplace=True)
-#             res['count'] = 1
-#             res = res[res['player'].isin(name_list)].reset_index(drop=True)
-
-#             print(res.columns)
-#             return res
-
-
-#         player_df = getPlayerNumPlayerResult(player_ori, names, playerNum)
-#         player_df_group = player_df.groupby('count').agg(
-#             平均顺位=('position', 'mean'),
-#             平均分数=('playerScore', 'mean'),
-#             平均时代=('generations', 'mean'),
-#             总数=('count', 'sum')
-#         ).dropna().sort_values('平均顺位').reset_index(drop=True)
-
-#         # TODO 时间序列，全局和按天数聚合的结果
-#         player_df['小时'] = (pd.to_datetime(player_df['createtime'])).dt.hour
-#         player_time = player_df.groupby(player_df.小时).agg(
-#             局数=('count', 'sum')
-#         ).dropna().sort_index()
-#         st.markdown('### 对局统计')
-
-#         st.table((player_df_group.assign(用户名=name) \
-#                   .set_index('用户名')) \
-#                  .style.format({'平均顺位': '{:.2f}', '平均分数': '{:.3f}', '平均时代': '{:.3f}'}))
-
-#         playersCardRank = getPlayersCard(names)
-#         with st.expander('你最喜欢的卡牌'):
-
-#             st.table(playersCardRank.style.format({'位次': '{:.2f}', '得分': '{:.4f}', '时代': '{:.2f}'}))
-
-
-#         # 根据玩家的game_id join, 取位次高于该玩家的用户，按名称聚合
-#         @st.cache
-#         def getPlayersPlayWith(df, name_list, player_num=4):
-#             """
-#             主键: game_id, player
-#             """
-#             # df = df.loc[(df['players'] == player_num) & (df['player'].isin(name_list))].reset_index(drop=True)
-#             df = df.loc[(df['players'] == player_num)].reset_index(drop=True)
-#             for i in range(1, player_num + 1):
-#                 player_idx = 'player' + str(i)
-#                 # print(df[player_idx].head())
-#                 # player_df_pre = df[player_idx].apply(lambda x:eval(x))
-#                 # print(player_idx)
-#                 # player_df = pd.json_normalize(player_df_pre).reset_index(drop=True)
-#                 player_df = pd.json_normalize(df[player_idx].apply(lambda x: eval(x))).reset_index(drop=True)
-#                 if i == 1:
-#                     res = pd.concat([df, player_df.reindex(df.index)], axis=1)
-#                 else:
-#                     mid = pd.concat([df, player_df.reindex(df.index)], axis=1)
-#                     res = pd.concat([res, mid], axis=0, ignore_index=True)
-#                     # print((mid.loc[pd.isna(mid['player']) == False]).shape[0])
-#                 # df = pd.concat([df, pd.json_normalize(df[player_idx])],axis=1)
-#             res.drop(['player' + str(i) for i in range(1, 7)], axis=1, inplace=True)
-#             res['count'] = 1
-
-#             res_player = res[res['player'].isin(name_list)].reset_index(drop=True)
-#             res_other = res[~(res['player'].isin(name_list))].reset_index(drop=True)
-#             res_final = res_other.merge(res_player, on='game_id', how='inner', suffixes=['', '_drop'],
-#                                         indicator=True).query('position.notna()', engine="python")
-#             res_final.loc[res_final['position'] > res_final['position_drop'], 'win'] = 1
-#             res_final.loc[res_final['position'] <= res_final['position_drop'], 'win'] = 0
-#             res_final_group = res_final.groupby('player').agg(
-#                 总共遇到次数=('win', 'count'),
-#                 被你击败=('win', 'sum')
-#             ).dropna().sort_values('总共遇到次数', ascending=False)
-#             res_final_group['被你击败'] = res_final_group['被你击败'].astype(int)
-#             return res_final_group
-
-
-#         with st.expander('你最喜欢的公司'):
-#             try:
-#                 fav_corps = corp_df.loc[corp_df['player'].isin(names)]
-#                 fav_corps_group = fav_corps.groupby(['cn']).agg(
-#                     平均顺位=('position', 'mean'),
-#                     平均分数=('playerScore', 'mean'),
-#                     平均时代=('generations', 'mean'),
-#                     总数=('count', 'count')
-#                 ).dropna().sort_values('总数', ascending=False).head(15)
-#                 st.table(fav_corps_group.style.format(
-#                     {'平均顺位': '{:.1f}', '平均分数': '{:.2f}', '平均时代': '{:.1f}', '总数': '{:.0f}'}))
-#             except:
-#                 st.warning('该选项组合没有数据')
-#         with st.expander('和你游戏的玩家'):
-#             try:
-#                 player_with_you = getPlayersPlayWith(player_ori, names, playerNum)
-#                 st.table(player_with_you.head(15))
-#             except:
-#                 st.warning('该选项组合没有数据')
-#         with st.expander('活跃时间'):
-#             st.bar_chart(player_time)
-
-#         challenge = pd.read_csv('./成就.csv')
-#         all_challenge = (pd.unique(challenge['title'])).shape[0]
-#         challenge = challenge.loc[challenge['player'].isin(names)].sort_values('index')
-#         challenge.drop_duplicates(subset=['title'], keep='first', inplace=True)
-#         challenge = challenge.loc[:, ['title', 'reason', 'createtime']].set_index('title')
-#         challenge.columns = ['成就', '达成时间']
-#         your_challenge = challenge.shape[0]
-#         with st.expander('火星成就 (%d/%d)' % (your_challenge, all_challenge)):
-#             if challenge.shape[0] == 0:
-#                 challenge = challenge.append({'成就': '达成成就数量 (%d/%d)' % (your_challenge, all_challenge), '达成时间': '直到此刻'},
-#                                              ignore_index=True)
-#                 challenge.rename(index={0: '火星打工人'}, inplace=True)
-#             st.table(challenge)
-
-# elif page == '卡牌数据':
-#     local_css("style.css")
-#     remote_css('https://fonts.googleapis.com/icon?family=Material+Icons')
-
-#     icon("search")
-#     card_key = st.text_input("")
-#     card_clicked = st.button("OK")
-#     allCardsRank = pd.read_csv('./allCardsRank.csv')
-#     allCardsRank.columns = ['卡牌中文', '卡牌英文', '位次', '得分', '时代', '打出次数']
-#     if card_key == '':
-#         allCardsRank = allCardsRank
-#     else:
-#         allCardsRank = allCardsRank[(allCardsRank['卡牌英文'].str.contains('(?i)' + card_key)) | (
-#             allCardsRank['卡牌中文'].str.contains('(?i)' + card_key))]
-#     st.dataframe(allCardsRank.style.format({'位次': '{:.2f}', '得分': '{:.1f}', '时代': '{:.1f}', '打出次数': '{:.0f}'}))
-
-#     st.text('注：卡牌的数据统计根据打出该卡牌的玩家最终位次和得分计算。')
-
-# elif page == '网站介绍':
-#     st.markdown("""
-#     ## 数据来源
-#     本网站数据来自[殖民火星国服](http://jaing.me/)的后台数据库，有超过14000局游戏的记录，本数据站主要针对2P和4P进行统计。
-    
-#     ## FAQ
-    
-#     * **Q: 登陆账号是哪个账号?**
-    
-#         A: 火星游戏网站的注册账号。
-    
-#     * **Q: 我的常用游戏名和登陆账号不符怎么办?**
-    
-#         A: 联系*QQ: 209926937*, 将个人常用id发给我即可。
-    
-#     * **Q: 我想看更多的数据, 或者有优化界面的建议, 如何提出呢?**
-    
-#         A: 联系上方的QQ号就行了捏。
-        
-#     ## 当前点击量
-#     目前已被访问%s次。
-#     """ % (add)
-#                 )
