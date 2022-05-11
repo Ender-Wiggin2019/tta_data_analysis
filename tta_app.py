@@ -313,20 +313,38 @@ if page == '观战查询':
     if ori_df.shape[0] == 0:
         st.error('所选筛选组合没有数据')
     else:
-        st.dataframe(ori_df)
+        ori_df_build = GridOptionsBuilder.from_dataframe(ori_df)
+        ori_df_build.configure_selection('single')
+        # ori_df_build.configure_selection('single', use_checkbox=True, groupSelectsChildren=True, groupSelectsFiltered=True)
+        ori_df_builder = ori_df_build.build()
+        AgGrid(
+            ori_df, 
+            width='100%',
+            allow_unsafe_jscode=True, #Set it to True to allow jsfunction to be injected
+            fit_columns_on_grid_load=True,
+            gridOptions=ori_df_builder,
+            theme='streamlit'
+            )
         with st.expander('玩家胜率'):
-            mini_num = st.slider('选择入选所需要的最小局数',1,100)
-            mini_rate = st.slider('选择入选所需要的最低胜率',10,100)
+            mini_num = st.slider('选择入选所需要的最小局数',1,100, value=3)
+            mini_rate = st.slider('选择入选所需要的最低胜率',0,100, value=10)
             player_win_rate_df_group = player_win_rate_df_group.loc[player_win_rate_df_group['胜率'] >= mini_rate/100] 
-            player_win_rate_df_group['胜率'] = player_win_rate_df_group['胜率'].mul(100).round(1).astype(str).add(' %')
+            # player_win_rate_df_group['胜率'] = player_win_rate_df_group['胜率'].mul(100).round(1).astype(str).add(' %')
             player_win_rate_df_group = player_win_rate_df_group.loc[player_win_rate_df_group['局数'] >= mini_num].sort_values(['胜率', '局数'], ascending=[False, False]).reset_index(drop=True)
             # st.dataframe(player_win_rate_df_group.style.format(
             #     {'胜场': '{:.0f}', '局数': '{:.0f}', '胜率': '{:.0%}'}))
             # player_win_rate_df_group = player_win_rate_df_group.style.format({'胜场': '{:.0f}', '局数': '{:.0f}', '胜率': '{:.0%}'})
+ #builds a gridOptions dictionary using a GridOptionsBuilder instance.
+            player_win_rate_df_group_build = GridOptionsBuilder.from_dataframe(player_win_rate_df_group)
+            player_win_rate_df_group_build.configure_column("胜率", header_name='胜率', type=["numericColumn","numberColumnFilter"], valueFormatter="(data.胜率*100).toFixed(1)+'%'", aggFunc='sum')
+            player_win_rate_df_group_builder = player_win_rate_df_group_build.build()
             AgGrid(
                 player_win_rate_df_group, 
-                width='100%',
+                width=None,
                 allow_unsafe_jscode=True, #Set it to True to allow jsfunction to be injected
+                theme='streamlit',
+                fit_columns_on_grid_load=True,
+                gridOptions=player_win_rate_df_group_builder
                 )
     
     
