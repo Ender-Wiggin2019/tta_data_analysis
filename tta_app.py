@@ -198,7 +198,20 @@ if page == '玩家查询':
         # )
         code_df.columns = ['观战代码', '对局情况', '先手玩家', '后手玩家', '对局日期']
         with st.expander('对局记录'):
-            st.table(code_df)
+            code_df_build = GridOptionsBuilder.from_dataframe(code_df)
+            code_df_build.configure_selection('single')
+            code_df_build.configure_pagination()
+            # ori_df_build.configure_selection('single', use_checkbox=True, groupSelectsChildren=True, groupSelectsFiltered=True)
+            ori_df_builder = code_df_build.build()
+            AgGrid(
+                code_df, 
+                width='100%',
+                allow_unsafe_jscode=True, #Set it to True to allow jsfunction to be injected
+                fit_columns_on_grid_load=True,
+                gridOptions=ori_df_builder,
+                theme='streamlit'
+                )
+                # st.
         with st.expander('交战情况'):
             st.warning('请确保所选用户名均为同一位玩家')
             win_check = pd.read_sql_query("""
@@ -208,9 +221,22 @@ if page == '玩家查询':
                                 select cgeUsername, cgeUsername_2, 1 as flag from tta_pulse_flat_data where cgeUsername in ({name_list}) union all SELECT cgeUsername_2, cgeUsername, 0 as flag from tta_pulse_flat_data where cgeUsername_2 in ({name_list})
                             ) as a group by cgeUsername_2 order by 总数 desc;
                         """.format(name_list=', '.join(["'"+_+"'" for _ in names])), con=conn)
-            
-            st.table(win_check.style.format(
-                    {'胜场': '{:.0f}', '总数': '{:.0f}', '胜率': '{:.0%}'}))
+            win_check_build = GridOptionsBuilder.from_dataframe(win_check)
+            win_check_build.configure_selection('single')
+            win_check_build.configure_column("胜率", header_name='己方胜率', type=["numericColumn","numberColumnFilter"], valueFormatter="(data.胜率*100).toFixed(1)+'%'", aggFunc='sum')
+            win_check_build.configure_pagination()
+            # ori_df_build.configure_selection('single', use_checkbox=True, groupSelectsChildren=True, groupSelectsFiltered=True)
+            ori_df_builder = win_check_build.build()
+            AgGrid(
+                win_check, 
+                width='100%',
+                allow_unsafe_jscode=True, #Set it to True to allow jsfunction to be injected
+                fit_columns_on_grid_load=True,
+                gridOptions=ori_df_builder,
+                theme='streamlit'
+                )
+            # st.table(win_check.style.format(
+            #         {'胜场': '{:.0f}', '总数': '{:.0f}', '胜率': '{:.0%}'}))
 
 
 if page == '观战查询':
@@ -281,7 +307,7 @@ if page == '观战查询':
             wonder_code = read_query('select distinct code from tta_pulse_wonder_detail where wonder_name in ({wonder})'.format(wonder=', '.join(["'"+_+"'" for _ in wonder_actual_names])))
             ori_df = ori_df.merge(wonder_code, on='code', how='inner', suffixes=['', '_drop'])
 
-        if len(leader_names) > 0 or len(wonder_names) > 0: st.warning('领袖奇迹筛选为测试功能，仅包含玩家手工统计的对局。')
+        if len(leader_names) > 0 or len(wonder_names) > 0: st.warning('领袖奇迹筛选仅包含玩家手工统计的对局，请谨慎使用这个筛选条件。')
         button_clicked = st.button("OK")
                    
     lose_df = ori_df.loc[:,['cgeUsername_2', 'isWin_2']]
@@ -315,6 +341,7 @@ if page == '观战查询':
     else:
         ori_df_build = GridOptionsBuilder.from_dataframe(ori_df)
         ori_df_build.configure_selection('single')
+        ori_df_build.configure_pagination()
         # ori_df_build.configure_selection('single', use_checkbox=True, groupSelectsChildren=True, groupSelectsFiltered=True)
         ori_df_builder = ori_df_build.build()
         AgGrid(
@@ -336,6 +363,7 @@ if page == '观战查询':
             # player_win_rate_df_group = player_win_rate_df_group.style.format({'胜场': '{:.0f}', '局数': '{:.0f}', '胜率': '{:.0%}'})
  #builds a gridOptions dictionary using a GridOptionsBuilder instance.
             player_win_rate_df_group_build = GridOptionsBuilder.from_dataframe(player_win_rate_df_group)
+            player_win_rate_df_group_build.configure_pagination(True, False, 30)
             player_win_rate_df_group_build.configure_column("胜率", header_name='胜率', type=["numericColumn","numberColumnFilter"], valueFormatter="(data.胜率*100).toFixed(1)+'%'", aggFunc='sum')
             player_win_rate_df_group_builder = player_win_rate_df_group_build.build()
             AgGrid(
@@ -461,7 +489,7 @@ elif page == '网站介绍':
     
     """)
 
-    with st.expander("💬 Open comments", expanded=True):
+    with st.expander("💬 Open comments", expanded=False):
 
     # # Show comments
 
