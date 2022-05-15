@@ -284,6 +284,7 @@ if page == '观战查询':
  
  
     with st.expander('领袖奇迹筛选'):
+        st.warning('启用此功能后，将仅剩下玩家手工统计的对局。')
         sql1 = """
         select name_cn as name, name_cn, age from tta_card_main where type = 'leader'
         order by age, name_cn
@@ -378,9 +379,108 @@ if page == '观战查询':
     
     
 elif page == '卡牌查询':
-    st.markdown('还没做')
+    c1, c2, c3 = st.columns([1,6,2])
+    w_logic = c1.selectbox('胜方判断',['>=', '>', '<','<='])
+    w_rate = c2.slider('胜方胜率',0,100,0,step=5)
+    w_game = c3.number_input('胜方局数', 1,1000,1,step=10)
+    l_logic = c1.selectbox('败方判断',['>=', '>', '<','<='])
+    l_rate = c2.slider('败方胜率',0,100,0,step=5)
+    l_game = c3.number_input('败方局数', 1,1000,1,step=10)
+    sql = """
+        with t1 as
+                (select a.leader_no, a.leader_name, a.is_win
+                from tta_pulse_leader_detail as a
+                        inner join
+                    (select code
+                        from tta_pulse_code_detail as a
+                                inner join tta_pulse_win_rate as b
+                                            on a.player_win = b.player and b.win_rate {w_logic} {w_rate}/100 and b.total >= {w_game}
+                                inner join tta_pulse_win_rate as c
+                                            on a.player_lose = c.player and c.win_rate {l_logic} {l_rate}/100 and c.total >= {l_game}) as b on a.code = b.code)
+        select leader_name                                             as "领袖名称",
+            sum(is_win)                                             as "胜场",
+            count(is_win)                                           as "总数",
+            sum(is_win) / count(is_win)                             as "胜率",
+            concat('Age ', case
+                                when leader_no = 'a' then 'A'
+                                when leader_no = '1' then 'I'
+                                when leader_no = '2' then 'II'
+                                when leader_no = '3' then 'III' end) as "时代"
+        from t1
+        group by leader_no, leader_name
+        order by FIELD(leader_no, 'a', '1', '2', '3'), sum(is_win) / count(is_win) desc;
+    """.format(w_logic=w_logic, w_rate=w_rate, l_logic=l_logic, l_rate=l_rate, w_game=w_game, l_game=l_game)
     
-    
+    sql2 = """
+        with t1 as
+                (select a.wonder_no, a.wonder_name, a.is_win
+                from tta_pulse_wonder_detail as a
+                        inner join
+                    (select code
+                        from tta_pulse_code_detail as a
+                                inner join tta_pulse_win_rate as b
+                                            on a.player_win = b.player and b.win_rate {w_logic} {w_rate}/100 and b.total >= {w_game}
+                                inner join tta_pulse_win_rate as c
+                                            on a.player_lose = c.player and c.win_rate {l_logic} {l_rate}/100 and c.total >= {l_game}) as b on a.code = b.code)
+        select a.wonder_name         as "奇迹名称",
+            a.win_num             as "胜场",
+            a.total               as "总数",
+            a.win_rate            as "胜率",
+            concat('Age ', b.age) as "时代"
+        from (select wonder_name,
+                    sum(is_win)                 as win_num,
+                    count(is_win)               as total,
+                    sum(is_win) / count(is_win) as win_rate,
+                    avg(wonder_no)              as wonder_no
+            from t1
+            group by wonder_name) as a
+                left join tta_card_main as b
+                        on a.wonder_name = b.name_cn
+        order by b.age, win_rate desc
+    """.format(w_logic=w_logic, w_rate=w_rate, l_logic=l_logic, l_rate=l_rate, w_game=w_game, l_game=l_game)
+    with st.expander('领袖'):
+        leader_df = read_query(sql)
+        leader_df_build = GridOptionsBuilder.from_dataframe(leader_df)
+        leader_df_build.configure_default_column(groupable=True, value=True, enableRowGroup=True, aggFunc='sum', editable=True)
+        leader_df_build.configure_pagination(True, False, 13)
+        leader_df_build.configure_column("胜率", header_name='胜率', type=["numericColumn","numberColumnFilter"], valueFormatter="(data.胜率*100).toFixed(1)+'%'", aggFunc='sum')
+        leader_df_builder = leader_df_build.build()
+        # jscode = JsCode("""
+        #     function(params) {
+        #         if (params.data.时代 === 'Age A') {
+        #             return {
+        #                 'color': 'black',
+        #                 'backgroundColor': 'red'
+        #             }
+        #         }
+        #     };
+        #     """)
+        # leader_df_builder['getRowStyle'] = jscode
+        AgGrid(
+            leader_df, 
+            width=None,
+            allow_unsafe_jscode=True, #Set it to True to allow jsfunction to be injected
+            theme='streamlit',
+            fit_columns_on_grid_load=True,
+            gridOptions=leader_df_builder
+            )
+
+    with st.expander('奇迹'):
+        wonder_df = read_query(sql2)
+        wonder_df_build = GridOptionsBuilder.from_dataframe(wonder_df)
+        wonder_df_build.configure_default_column(groupable=True, value=True, enableRowGroup=True, aggFunc='sum', editable=True)
+        wonder_df_build.configure_pagination(True, False, 16)
+        wonder_df_build.configure_column("胜率", header_name='胜率', type=["numericColumn","numberColumnFilter"], valueFormatter="(data.胜率*100).toFixed(1)+'%'", aggFunc='sum')
+        wonder_df_builder = wonder_df_build.build()
+        AgGrid(
+            wonder_df, 
+            width=None,
+            allow_unsafe_jscode=True, #Set it to True to allow jsfunction to be injected
+            theme='streamlit',
+            fit_columns_on_grid_load=True,
+            gridOptions=wonder_df_builder
+            )
+    st.markdown('还没做完，欢迎到[评论区](http://42.192.86.165:8501/)提建议')
 elif page == '提交对局':
     with st.form("game_submit"):
         st.write("请按照相应规则提交对局")
