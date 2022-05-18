@@ -12,10 +12,11 @@ import altair as alt
 import base64
 import mysql.connector
 import re
+import plotly.graph_objs as go
 from st_aggrid import GridOptionsBuilder, AgGrid, GridUpdateMode, DataReturnMode, JsCode
 from sqlalchemy import create_engine
 from streamlit.components.v1 import html
-
+from bokeh.plotting import figure
 st.set_page_config(page_title='贞德的水晶球', page_icon='./assets/favicon.png', initial_sidebar_state='auto', )
 
 baidu_statistics = """
@@ -379,6 +380,7 @@ if page == '观战查询':
     
     
 elif page == '卡牌查询':
+    st.info('温馨提示：手机用户请横屏以获得更好的体验。')
     c1, c2, c3 = st.columns([1,6,2])
     w_logic = c1.selectbox('胜方判断',['>=', '>', '<','<='])
     w_rate = c2.slider('胜方胜率',0,100,0,step=5)
@@ -458,6 +460,7 @@ elif page == '卡牌查询':
         # leader_df_builder['getRowStyle'] = jscode
         AgGrid(
             leader_df, 
+            height=430,
             width=None,
             allow_unsafe_jscode=True, #Set it to True to allow jsfunction to be injected
             theme='streamlit',
@@ -480,6 +483,174 @@ elif page == '卡牌查询':
             fit_columns_on_grid_load=True,
             gridOptions=wonder_df_builder
             )
+
+    with st.expander('单一领袖分析'):
+        sql1 = """
+        select name_cn as name, name_cn, age from tta_card_main where type = 'leader'
+        order by age, name_cn
+        """
+        leader_df = pd.read_sql_query(sql1, con=conn)
+        leader_list = list(leader_df['name'].unique())
+        leader_name = st.selectbox('领袖选择', leader_list)
+        sql = """
+        
+            select win_range as "胜率区间", win_rate as "该领袖胜率", win_rate / win_range as "该领袖胜率/胜率区间", total as "总数"
+            from (select round(b.win_rate, 1)        as win_range,
+                        count(is_win)               as total,
+                        sum(is_win)                 as win_time,
+                        sum(is_win) / count(is_win) as win_rate
+                from (select * from tta_pulse_leader_detail where leader_name = '{leader_name}') as a
+                        inner join (select * from tta_pulse_win_rate where win_rate >= 0.2 and win_rate <= 0.9) as b
+                                    on a.player = b.player
+                group by round(b.win_rate, 1)
+                order by round(b.win_rate, 1)) as a
+        """.format(leader_name=leader_name)
+        win_rate_by_leader_df = (pd.read_sql_query(sql, con=conn))
+        track1 = go.Bar(x=win_rate_by_leader_df['胜率区间'], y=win_rate_by_leader_df['总数'],name='总数', marker=dict(color='#869ed7'))
+        track2 = go.Scatter(x=win_rate_by_leader_df['胜率区间'], y=win_rate_by_leader_df['该领袖胜率'],name='该领袖胜率', xaxis='x', yaxis='y2', line=dict(color='#324162'))
+        track3 = go.Scatter(x=win_rate_by_leader_df['胜率区间'], y=win_rate_by_leader_df['该领袖胜率/胜率区间'],name='该领袖胜率/胜率区间', xaxis='x', yaxis='y2', line=dict(color='#da9ce4'))
+        data = [track1, track2,track3]
+        layout = go.Layout(title='领袖胜率分布(不受上方胜率筛选影响)', \
+            xaxis=dict(title="胜率区间"), \
+            yaxis=dict(title="总对局数"), \
+            yaxis2=dict(title="该领袖胜率", overlaying='y', side='right'))
+        fig = go.Figure(data=data, layout=layout)
+        
+        # fig = px.line(win_rate_by_leader_df, x="胜率区间", y="该领袖胜率", title='领袖胜率分布')
+        st.plotly_chart(fig, use_container_width=True)
+        
+        sql3="""
+            select a.*, total, 总数 / total as "选取率"
+            from (
+                    with t1 as
+                            (select a.leader_no, a.leader_name, a.is_win, substr(inc_day, 1, 6) as inc_day
+                            from (select * from tta_pulse_leader_detail where leader_name = '{leader_name}') as a
+                                        inner join
+                                                        (select code
+                        from tta_pulse_code_detail as a
+                                inner join tta_pulse_win_rate as b
+                                            on a.player_win = b.player and b.win_rate {w_logic} {w_rate}/100 and b.total >= {w_game}
+                                inner join tta_pulse_win_rate as c
+                                            on a.player_lose = c.player and c.win_rate {l_logic} {l_rate}/100 and c.total >= {l_game}) as b on a.code = b.code
+                                inner join
+                                    tta_pulse_flat_data as d on a.code = d.code)
+
+                    select inc_day                                                 as "月份",
+                            leader_name                                             as "领袖名称",
+                            sum(is_win)                                             as "胜场",
+                            count(is_win)                                           as "总数",
+                            sum(is_win) / count(is_win)                             as "该领袖胜率",
+                            concat('Age ', case
+                                            when leader_no = 'a' then 'A'
+                                            when leader_no = '1' then 'I'
+                                            when leader_no = '2' then 'II'
+                                            when leader_no = '3' then 'III' end) as "时代"
+                    from t1
+                    group by leader_no, leader_name, inc_day
+                    order by FIELD(leader_no, 'a', '1', '2', '3'), leader_name, inc_day, sum(is_win) / count(is_win) desc)
+                    as a
+                    left join
+                (select substr(inc_day, 1, 6) as inc_day, count(*) as total
+                from tta_pulse_code_detail as a
+                        inner join
+                    tta_pulse_flat_data as b
+                    on a.code = b.code
+                group by substr(inc_day, 1, 6)) as b
+                on a.月份 = b.inc_day
+        """.format(leader_name=leader_name, w_logic=w_logic, w_rate=w_rate, l_logic=l_logic, l_rate=l_rate, w_game=w_game, l_game=l_game)
+        date_by_leader_df = (pd.read_sql_query(sql3, con=conn))
+        # date_track1 = go.Bar(x=date_by_leader_df['月份'], y=date_by_leader_df['总数'],name='总数', marker=dict(color='#869ed7'))
+        date_track2 = go.Line(x=date_by_leader_df['月份'], y=date_by_leader_df['该领袖胜率'],name='该领袖胜率', line=dict(color='#324162'))
+        date_track3 = go.Line(x=date_by_leader_df['月份'], y=date_by_leader_df['选取率'],name='选取率', xaxis='x', yaxis='y2', line=dict(color='#da9ce4'))
+        date_data = [date_track2, date_track3]
+        date_layout = go.Layout(title='领袖时间序列(受上方胜率筛选影响)', \
+            xaxis=dict(title="月份"), \
+            yaxis=dict(title="该领袖胜率"), \
+            yaxis2=dict(title="选取率", overlaying='y', side='right'))
+        date_fig = go.Figure(data=date_data, layout=date_layout)
+        st.plotly_chart(date_fig, use_container_width=True)
+        
+    with st.expander('单一奇迹分析'):
+        sql2 = """
+        select name_cn as name, name_cn, age from tta_card_main where type = 'wonder'
+        order by age, name_cn
+        """
+        wonder_df = pd.read_sql_query(sql2, con=conn)
+        wonder_list = list(wonder_df['name'].unique())
+        wonder_name = st.selectbox('奇迹选择', wonder_list)
+        sql = """
+        
+            select win_range as "胜率区间", win_rate as "该奇迹胜率", win_rate / win_range as "该奇迹胜率/胜率区间", total as "总数"
+            from (select round(b.win_rate, 1)        as win_range,
+                        count(is_win)               as total,
+                        sum(is_win)                 as win_time,
+                        sum(is_win) / count(is_win) as win_rate
+                from (select * from tta_pulse_wonder_detail where wonder_name = '{wonder_name}') as a
+                        inner join (select * from tta_pulse_win_rate where win_rate >= 0.2 and win_rate <= 0.9) as b
+                                    on a.player = b.player
+                group by round(b.win_rate, 1)
+                order by round(b.win_rate, 1)) as a
+        """.format(wonder_name=wonder_name)
+        win_rate_by_leader_df = (pd.read_sql_query(sql, con=conn))
+        track1 = go.Bar(x=win_rate_by_leader_df['胜率区间'], y=win_rate_by_leader_df['总数'],name='总数', marker=dict(color='#869ed7'))
+        track2 = go.Scatter(x=win_rate_by_leader_df['胜率区间'], y=win_rate_by_leader_df['该奇迹胜率'],name='该奇迹胜率', xaxis='x', yaxis='y2', line=dict(color='#324162'))
+        track3 = go.Scatter(x=win_rate_by_leader_df['胜率区间'], y=win_rate_by_leader_df['该奇迹胜率/胜率区间'],name='该奇迹胜率/胜率区间', xaxis='x', yaxis='y2', line=dict(color='#da9ce4'))
+        data = [track1, track2,track3]
+        layout = go.Layout(title='奇迹胜率分布(不受上方胜率筛选影响)', \
+            xaxis=dict(title="胜率区间"), \
+            yaxis=dict(title="总对局数"), \
+            yaxis2=dict(title="该奇迹胜率", overlaying='y', side='right'))
+        fig = go.Figure(data=data, layout=layout)
+        
+        # fig = px.line(win_rate_by_leader_df, x="胜率区间", y="该领袖胜率", title='领袖胜率分布')
+        st.plotly_chart(fig, use_container_width=True)
+        
+        sql3="""
+            select a.*, total, 总数 / total as "选取率"
+            from (
+                    with t1 as
+                            (select a.wonder_no, a.wonder_name, a.is_win, substr(inc_day, 1, 6) as inc_day
+                            from (select * from tta_pulse_wonder_detail where wonder_name = '{wonder_name}') as a
+                                        inner join
+                                                        (select code
+                        from tta_pulse_code_detail as a
+                                inner join tta_pulse_win_rate as b
+                                            on a.player_win = b.player and b.win_rate {w_logic} {w_rate}/100 and b.total >= {w_game}
+                                inner join tta_pulse_win_rate as c
+                                            on a.player_lose = c.player and c.win_rate {l_logic} {l_rate}/100 and c.total >= {l_game}) as b on a.code = b.code
+                                inner join
+                                    tta_pulse_flat_data as d on a.code = d.code)
+
+                    select inc_day                                                 as "月份",
+                            wonder_name                                             as "奇迹名称",
+                            sum(is_win)                                             as "胜场",
+                            count(is_win)                                           as "总数",
+                            sum(is_win) / count(is_win)                             as "该奇迹胜率"
+                    from t1
+                    group by wonder_name, inc_day
+                    order by wonder_name, inc_day, sum(is_win) / count(is_win) desc)
+                    as a
+                    left join
+                (select substr(inc_day, 1, 6) as inc_day, count(*) as total
+                from tta_pulse_code_detail as a
+                        inner join
+                    tta_pulse_flat_data as b
+                    on a.code = b.code
+                group by substr(inc_day, 1, 6)) as b
+                on a.月份 = b.inc_day
+        """.format(wonder_name=wonder_name, w_logic=w_logic, w_rate=w_rate, l_logic=l_logic, l_rate=l_rate, w_game=w_game, l_game=l_game)
+        date_by_leader_df = (pd.read_sql_query(sql3, con=conn))
+        # date_track1 = go.Bar(x=date_by_leader_df['月份'], y=date_by_leader_df['总数'],name='总数', marker=dict(color='#869ed7'))
+        date_track2 = go.Line(x=date_by_leader_df['月份'], y=date_by_leader_df['该奇迹胜率'],name='该奇迹胜率', line=dict(color='#324162'))
+        date_track3 = go.Line(x=date_by_leader_df['月份'], y=date_by_leader_df['选取率'],name='选取率', xaxis='x', yaxis='y2', line=dict(color='#da9ce4'))
+        date_data = [date_track2, date_track3]
+        date_layout = go.Layout(title='奇迹时间序列(受上方胜率筛选影响)', \
+            xaxis=dict(title="月份"), \
+            yaxis=dict(title="该奇迹胜率"), \
+            yaxis2=dict(title="选取率", overlaying='y', side='right'))
+        date_fig = go.Figure(data=date_data, layout=date_layout)
+        st.plotly_chart(date_fig, use_container_width=True)
+        
     st.markdown('还没做完，欢迎到[评论区](http://42.192.86.165:8501/)提建议')
 elif page == '提交对局':
     with st.form("game_submit"):
