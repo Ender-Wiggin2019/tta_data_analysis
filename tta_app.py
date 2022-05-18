@@ -560,8 +560,8 @@ elif page == '卡牌查询':
         """.format(leader_name=leader_name, w_logic=w_logic, w_rate=w_rate, l_logic=l_logic, l_rate=l_rate, w_game=w_game, l_game=l_game)
         date_by_leader_df = (pd.read_sql_query(sql3, con=conn))
         # date_track1 = go.Bar(x=date_by_leader_df['月份'], y=date_by_leader_df['总数'],name='总数', marker=dict(color='#869ed7'))
-        date_track2 = go.Line(x=date_by_leader_df['月份'], y=date_by_leader_df['该领袖胜率'],name='该领袖胜率', line=dict(color='#324162'))
-        date_track3 = go.Line(x=date_by_leader_df['月份'], y=date_by_leader_df['选取率'],name='选取率', xaxis='x', yaxis='y2', line=dict(color='#da9ce4'))
+        date_track2 = go.Scatter(x=date_by_leader_df['月份'], y=date_by_leader_df['该领袖胜率'],name='该领袖胜率', line=dict(color='#324162'))
+        date_track3 = go.Scatter(x=date_by_leader_df['月份'], y=date_by_leader_df['选取率'],name='选取率', xaxis='x', yaxis='y2', line=dict(color='#da9ce4'))
         date_data = [date_track2, date_track3]
         date_layout = go.Layout(title='领袖时间序列(受上方胜率筛选影响)', \
             xaxis=dict(title="月份"), \
@@ -641,8 +641,8 @@ elif page == '卡牌查询':
         """.format(wonder_name=wonder_name, w_logic=w_logic, w_rate=w_rate, l_logic=l_logic, l_rate=l_rate, w_game=w_game, l_game=l_game)
         date_by_leader_df = (pd.read_sql_query(sql3, con=conn))
         # date_track1 = go.Bar(x=date_by_leader_df['月份'], y=date_by_leader_df['总数'],name='总数', marker=dict(color='#869ed7'))
-        date_track2 = go.Line(x=date_by_leader_df['月份'], y=date_by_leader_df['该奇迹胜率'],name='该奇迹胜率', line=dict(color='#324162'))
-        date_track3 = go.Line(x=date_by_leader_df['月份'], y=date_by_leader_df['选取率'],name='选取率', xaxis='x', yaxis='y2', line=dict(color='#da9ce4'))
+        date_track2 = go.Scatter(x=date_by_leader_df['月份'], y=date_by_leader_df['该奇迹胜率'],name='该奇迹胜率', line=dict(color='#324162'))
+        date_track3 = go.Scatter(x=date_by_leader_df['月份'], y=date_by_leader_df['选取率'],name='选取率', xaxis='x', yaxis='y2', line=dict(color='#da9ce4'))
         date_data = [date_track2, date_track3]
         date_layout = go.Layout(title='奇迹时间序列(受上方胜率筛选影响)', \
             xaxis=dict(title="月份"), \

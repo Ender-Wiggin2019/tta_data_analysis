@@ -1,7 +1,6 @@
 *.csv
 *.txt
 *.xlsx
-*.ipynb
 *.sql
 .streamlit
 __pycache__
