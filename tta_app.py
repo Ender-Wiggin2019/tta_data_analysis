@@ -108,6 +108,11 @@ def read_query(query):
     conn.reconnect()
     return pd.read_sql_query(query, con=conn)
 
+@st.experimental_memo(ttl=600)
+def read_cache_query(query):
+    conn.reconnect()
+    return pd.read_sql_query(query, con=conn)
+
 
 @st.experimental_memo(ttl=600)
 def write_query(df, table_name):
@@ -165,7 +170,6 @@ if page == '玩家查询':
     if len(names) > 0:
         player_games = pd.read_sql_query("SELECT *,'胜' as flag, coalesce(code, '无代码') as code_add from tta_pulse_flat_data where cgeUsername in ({name_list}) union all SELECT *,'负' as flag, coalesce(code, '无代码') as code_add from tta_pulse_flat_data where cgeUsername_2 in ({name_list});".format(name_list=', '.join(["'"+_+"'" for _ in names])), con=conn)
         cross_detect = pd.read_sql_query("select a.code from (SELECT *,isWin as flag from tta_pulse_flat_data where cgeUsername in ({name_list})) as a inner join (SELECT *,isWin_2 as flag from tta_pulse_flat_data where cgeUsername_2 in ({name_list})) as b on a.code = b.code;".format(name_list=', '.join(["'"+_+"'" for _ in names])), con=conn)
-        print('1')
         print(cross_detect.shape[0])
         if cross_detect.shape[0] > 0: st.warning('所选择的玩家参与过同一场对局')
         player_games['startDate'] = (pd.to_datetime(player_games['startDate'])).dt.tz_localize(timezone.utc)
@@ -347,7 +351,7 @@ if page == '观战查询':
         # ori_df_build.configure_selection('single', use_checkbox=True, groupSelectsChildren=True, groupSelectsFiltered=True)
         ori_df_builder = ori_df_build.build()
         AgGrid(
-            ori_df, 
+            ori_df.head(100), 
             width='100%',
             allow_unsafe_jscode=True, #Set it to True to allow jsfunction to be injected
             fit_columns_on_grid_load=True,
@@ -398,7 +402,8 @@ elif page == '卡牌查询':
                                 inner join tta_pulse_win_rate as b
                                             on a.player_win = b.player and b.win_rate {w_logic} {w_rate}/100 and b.total >= {w_game}
                                 inner join tta_pulse_win_rate as c
-                                            on a.player_lose = c.player and c.win_rate {l_logic} {l_rate}/100 and c.total >= {l_game}) as b on a.code = b.code)
+                                            on a.player_lose = c.player and c.win_rate {l_logic} {l_rate}/100 and c.total >= {l_game}) as b on a.code = b.code
+                                where leader_name <> '无') -- TODO 针对体退情况暂时删去
         select leader_name                                             as "领袖名称",
             sum(is_win)                                             as "胜场",
             count(is_win)                                           as "总数",
@@ -423,7 +428,8 @@ elif page == '卡牌查询':
                                 inner join tta_pulse_win_rate as b
                                             on a.player_win = b.player and b.win_rate {w_logic} {w_rate}/100 and b.total >= {w_game}
                                 inner join tta_pulse_win_rate as c
-                                            on a.player_lose = c.player and c.win_rate {l_logic} {l_rate}/100 and c.total >= {l_game}) as b on a.code = b.code)
+                                            on a.player_lose = c.player and c.win_rate {l_logic} {l_rate}/100 and c.total >= {l_game}) as b on a.code = b.code
+                                )
         select a.wonder_name         as "奇迹名称",
             a.win_num             as "胜场",
             a.total               as "总数",
@@ -440,11 +446,11 @@ elif page == '卡牌查询':
                         on a.wonder_name = b.name_cn
         order by b.age, win_rate desc
     """.format(w_logic=w_logic, w_rate=w_rate, l_logic=l_logic, l_rate=l_rate, w_game=w_game, l_game=l_game)
-    with st.expander('领袖'):
+    with st.expander('所有领袖胜率'):
         leader_df = read_query(sql)
         leader_df_build = GridOptionsBuilder.from_dataframe(leader_df)
         leader_df_build.configure_default_column(groupable=True, value=True, enableRowGroup=True, aggFunc='sum', editable=True)
-        leader_df_build.configure_pagination(True, False, 13)
+        leader_df_build.configure_pagination(True, False, 12)
         leader_df_build.configure_column("胜率", header_name='胜率', type=["numericColumn","numberColumnFilter"], valueFormatter="(data.胜率*100).toFixed(1)+'%'", aggFunc='sum')
         leader_df_builder = leader_df_build.build()
         # jscode = JsCode("""
@@ -460,7 +466,7 @@ elif page == '卡牌查询':
         # leader_df_builder['getRowStyle'] = jscode
         AgGrid(
             leader_df, 
-            height=430,
+            height=410,
             width=None,
             allow_unsafe_jscode=True, #Set it to True to allow jsfunction to be injected
             theme='streamlit',
@@ -468,7 +474,7 @@ elif page == '卡牌查询':
             gridOptions=leader_df_builder
             )
 
-    with st.expander('奇迹'):
+    with st.expander('所有奇迹胜率'):
         wonder_df = read_query(sql2)
         wonder_df_build = GridOptionsBuilder.from_dataframe(wonder_df)
         wonder_df_build.configure_default_column(groupable=True, value=True, enableRowGroup=True, aggFunc='sum', editable=True)
@@ -650,7 +656,72 @@ elif page == '卡牌查询':
             yaxis2=dict(title="选取率", overlaying='y', side='right'))
         date_fig = go.Figure(data=date_data, layout=date_layout)
         st.plotly_chart(date_fig, use_container_width=True)
-        
+    
+    with st.expander('组合分析'):
+        sql2 = """
+        select name_cn as name, name_cn, age from tta_card_main
+        order by age,field(type,'领袖','奇迹'),name_cn
+        """
+        card_df = pd.read_sql_query(sql2, con=conn)
+        card_list = list(card_df['name'].unique())
+        c1, c2 = st.columns([1,1])
+        combo1 = c1.multiselect('选择己方卡牌（组合）',card_list)
+        combo2 = c2.multiselect('选择对方卡牌（组合）',card_list)
+        where1, where2, where3, where4 = '', '', '', ''
+        if len(combo1) >= 1:
+            where1 = combo1[0]
+            if len(combo1) >= 2:
+                where2 = """
+                    inner join
+                    (select * from t1 where card_name = '{}') as b
+                    on a.code = b.code and a.player = b.player
+                """.format(combo1[1])
+            else:
+                where2 = ''
+        if len(combo2) >= 1:
+            where3 = """
+                inner join
+                (select * from t1 where card_name = '{}') as c
+                on a.code = c.code and a.player <> c.player
+            """.format(combo2[0])
+            if len(combo2) >= 2:
+                where4 = """
+                    inner join
+                    (select * from t1 where card_name = '{}') as d
+                    on a.code = d.code and a.player <> d.player
+                """.format(combo2[1])
+            else:
+                where4 = ''
+        else:
+            where3, where4 = '', ''
+        if len(combo1) > 2 or len(combo2) > 2:
+            st.warning('目前只支持两张卡牌的组合！')
+        sql = """
+            with t1 as (select code, player, leader_name as card_name, is_win
+                        from tta_pulse_leader_detail
+                        union all
+                        select code, player, wonder_name as card_name, is_win
+                        from tta_pulse_wonder_detail)
+            select sum(is_win) as win_time, count(is_win) as total, sum(is_win) / count(is_win) as win_rate
+            from (
+                    select a.*
+                    from (select *
+                        from t1
+                        where card_name = '{}') as a
+                            {}
+                            {}
+                            {}
+                ) as a
+        """.format(where1, where2, where3, where4)
+        find_win_rate = st.button('查询胜率')
+        if find_win_rate:
+            if len(combo1) < 1:
+                st.error('至少选择一张己方卡牌')
+            else:
+                win_result = read_query(sql)
+                if win_result.iloc[0,1] == 0: st.warning('无数据')
+                else: st.success('所选组合胜率为'+str(round(win_result.iloc[0,2]*100, 2))+'%, '+'总局数为'+str(win_result.iloc[0,1]))
+            
     st.markdown('还没做完，欢迎到[评论区](http://42.192.86.165:8501/)提建议')
 elif page == '提交对局':
     with st.form("game_submit"):
