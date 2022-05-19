@@ -1,5 +1,5 @@
 *.csv
-*.txt
+count.txt
 *.xlsx
 *.sql
 .streamlit

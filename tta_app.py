@@ -7,8 +7,6 @@ from datetime import timezone
 import pytz
 import pandas as pd
 from PIL import Image
-import matplotlib.pyplot as plt
-import altair as alt
 import base64
 import mysql.connector
 import re
