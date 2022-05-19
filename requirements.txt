@@ -3,3 +3,4 @@ streamlit-aggrid==0.2.3.post2
 mysql-connector-python==8.0.28
 urllib3==1.26.7
 plotly==5.8.0
+sqlalchemy==1.4.22
