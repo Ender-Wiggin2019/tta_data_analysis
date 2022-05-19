@@ -14,7 +14,6 @@ import plotly.graph_objs as go
 from st_aggrid import GridOptionsBuilder, AgGrid, GridUpdateMode, DataReturnMode, JsCode
 from sqlalchemy import create_engine
 from streamlit.components.v1 import html
-from bokeh.plotting import figure
 st.set_page_config(page_title='贞德的水晶球', page_icon='./assets/favicon.png', initial_sidebar_state='auto', )
 
 baidu_statistics = """

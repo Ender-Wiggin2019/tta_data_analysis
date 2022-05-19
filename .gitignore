@@ -2,8 +2,7 @@
 count.txt
 *.xlsx
 *.sql
-.streamlit
+secrets.toml
 __pycache__
 .ipynb_checkpoints
-*.toml
 test.py
