@@ -8,7 +8,7 @@ This project uses the data from [TTA Pulse](www.ttapulse.com) for analysis purpo
 
 ## How could you get these data?
 
-The source code of  `pulse.py` shows the process to retrieve code from TTA Pulse website. Also, an RPA programme (using `pyautogui` to broswer game detail and simple image recognition algorithm to detect correct leaders and wonders) is developed by another teammate to gather detailed data for over 10000 games. 
+The source code of  `pulse.py` shows the process to retrieve code from TTA Pulse website. Also, an RPA programme (using `pyautogui` to browse game detail and simple image recognition algorithm to detect correct leaders and wonders) is developed by another teammate to gather detailed data for over 10000 games. 
 
 
 
