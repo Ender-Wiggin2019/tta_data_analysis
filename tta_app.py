@@ -953,38 +953,38 @@ elif page == '网站介绍':
     
     """)
 
-    with st.expander("💬 Open comments", expanded=False):
+    # with st.expander("💬 Open comments", expanded=False):
 
-    # # Show comments
+    # # # Show comments
 
-        st.write("**Comments:**")
-        COMMENT_TEMPLATE_MD = """{} - {}
+    #     st.write("**Comments:**")
+    #     COMMENT_TEMPLATE_MD = """{} - {}
         
-        > {}"""
-        comment_df = read_query("select * from tta_app_comments order by create_time desc limit 20")
-        if comment_df.shape[0] == 0: st.text('NO DATA')
-        for i, v in comment_df.iterrows():
-            st.markdown(COMMENT_TEMPLATE_MD.format(v['name'], v['create_time'], v['content']))
+    #     > {}"""
+    #     comment_df = read_query("select * from tta_app_comments order by create_time desc limit 20")
+    #     if comment_df.shape[0] == 0: st.text('NO DATA')
+    #     for i, v in comment_df.iterrows():
+    #         st.markdown(COMMENT_TEMPLATE_MD.format(v['name'], v['create_time'], v['content']))
 
-            is_last = i == comment_df.shape[0]
-            is_new = "just_posted" in st.session_state and is_last
-            if is_new:
-                st.success("☝️ Your comment was successfully posted.")
+    #         is_last = i == comment_df.shape[0]
+    #         is_new = "just_posted" in st.session_state and is_last
+    #         if is_new:
+    #             st.success("☝️ Your comment was successfully posted.")
 
-        space(2)
+    #     space(2)
 
-        # Insert comment
+    #     # Insert comment
 
-        st.write("**提交你的评论:**")
-        form = st.form("评论")
-        name = form.text_input("你的昵称")
-        comment = form.text_area("评论")
-        submit = form.form_submit_button("提交评论")
+    #     st.write("**提交你的评论:**")
+    #     form = st.form("评论")
+    #     name = form.text_input("你的昵称")
+    #     comment = form.text_area("评论")
+    #     submit = form.form_submit_button("提交评论")
 
-        if submit:
-            date = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            new_comment = pd.DataFrame([{"name": name, "create_time": date, "content": comment}])
-            write_query(new_comment, 'tta_app_comments')
-            if "just_posted" not in st.session_state:
-                st.session_state["just_posted"] = True
-            st.experimental_rerun()
+    #     if submit:
+    #         date = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    #         new_comment = pd.DataFrame([{"name": name, "create_time": date, "content": comment}])
+    #         write_query(new_comment, 'tta_app_comments')
+    #         if "just_posted" not in st.session_state:
+    #             st.session_state["just_posted"] = True
+    #         st.experimental_rerun()

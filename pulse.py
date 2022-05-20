@@ -48,7 +48,7 @@ for i in range(dp.subtractTwoDates(end_date, start_date) + 1):
         headers = {
         'Accept': 'application/json, text/plain, */*',
         'Accept-Language': 'zh-CN,zh;q=0.9,zh-TW;q=0.8',
-        'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1bmlxdWVfbmFtZSI6IkVuZGVyX1dpZ2dpbiIsIm5hbWVpZCI6IjE0NDQiLCJuYmYiOjE2NTA3NDIwMDMsImV4cCI6MTY1MDc0NTYwMywiaWF0IjoxNjUwNzQyMDAzfQ.VuYH7dmAs8bHnUXwmVzjCOQnRGpGTmX3AGC1LQO7Szc',
+        'Authorization': 'YOUR BEARER CODE ',
         'Connection': 'keep-alive',
         'DNT': '1',
         'Host': 'ttapulse-backend.azurewebsites.net',
