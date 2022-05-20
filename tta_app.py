@@ -164,9 +164,10 @@ page = st.sidebar.selectbox("选择类别", ['玩家查询', '观战查询', '�
 if page == '玩家查询':
     player_list = list((pd.read_sql_query("SELECT distinct cgeUsername as player from tta_pulse_data;", con=conn))['player'].unique())
     names = st.multiselect('用户名', player_list)
+    name_list = ', '.join(["'"+_+"'" for _ in names])
     if len(names) > 0:
-        player_games = pd.read_sql_query("SELECT *,'胜' as flag, coalesce(code, '无代码') as code_add from tta_pulse_flat_data where cgeUsername in ({name_list}) union all SELECT *,'负' as flag, coalesce(code, '无代码') as code_add from tta_pulse_flat_data where cgeUsername_2 in ({name_list});".format(name_list=', '.join(["'"+_+"'" for _ in names])), con=conn)
-        cross_detect = pd.read_sql_query("select a.code from (SELECT *,isWin as flag from tta_pulse_flat_data where cgeUsername in ({name_list})) as a inner join (SELECT *,isWin_2 as flag from tta_pulse_flat_data where cgeUsername_2 in ({name_list})) as b on a.code = b.code;".format(name_list=', '.join(["'"+_+"'" for _ in names])), con=conn)
+        player_games = pd.read_sql_query("SELECT *,'胜' as flag, coalesce(code, '无代码') as code_add from tta_pulse_flat_data where cgeUsername in ({name_list}) union all SELECT *,'负' as flag, coalesce(code, '无代码') as code_add from tta_pulse_flat_data where cgeUsername_2 in ({name_list});".format(name_list=name_list), con=conn)
+        cross_detect = pd.read_sql_query("select a.code from (SELECT *,isWin as flag from tta_pulse_flat_data where cgeUsername in ({name_list})) as a inner join (SELECT *,isWin_2 as flag from tta_pulse_flat_data where cgeUsername_2 in ({name_list})) as b on a.code = b.code;".format(name_list=name_list), con=conn)
         print(cross_detect.shape[0])
         if cross_detect.shape[0] > 0: st.warning('所选择的玩家参与过同一场对局')
         player_games['startDate'] = (pd.to_datetime(player_games['startDate'])).dt.tz_localize(timezone.utc)
@@ -175,9 +176,17 @@ if page == '玩家查询':
         player_games['小时'] = player_games['startDate'].dt.hour
         player_time = player_games.groupby(player_games.小时).agg(
             局数=('cgeUsername', 'count')
-        ).dropna().sort_index()
+        ).dropna().sort_index().reset_index()
         with st.expander('活跃时间'):
-            st.bar_chart(player_time)
+            track1 = go.Bar(x=player_time['小时'], y=player_time['局数'],name='局数', marker=dict(color='#869ed7'))
+            data = [track1]
+            layout = go.Layout(title='玩家活跃时间分布', \
+                xaxis=dict(title="时间(h)"), \
+                yaxis=dict(title="总对局数"))
+            fig = go.Figure(data=data, layout=layout)
+            
+            # fig = px.line(win_rate_by_leader_df, x="胜率区间", y="该领袖胜率", title='领袖胜率分布')
+            st.plotly_chart(fig, use_container_width=True)
 
         code_df_1 = player_games.loc[(pd.isna(player_games['code_add']) == False) & (player_games['position'] == 0),['code_add', 'flag', 'cgeUsername', 'cgeUsername_2','inc_day']]
         code_df_2 = player_games.loc[(pd.isna(player_games['code_add']) == False) & (player_games['position'] == 1),['code_add', 'flag', 'cgeUsername_2', 'cgeUsername', 'inc_day']]
@@ -237,9 +246,124 @@ if page == '玩家查询':
                 gridOptions=ori_df_builder,
                 theme='streamlit'
                 )
-            # st.table(win_check.style.format(
-            #         {'胜场': '{:.0f}', '总数': '{:.0f}', '胜率': '{:.0%}'}))
+        with st.expander('己方所使用卡牌胜率'):
+            sql = """
+            select leader_name                 as "领袖名称",
+                   sum(is_win)                 as "胜场",
+                   count(is_win)               as "总数",
+                   sum(is_win) / count(is_win) as "胜率"
+            from tta_pulse_leader_detail
+            where player in ({name_list}) and leader_name <> '无'
+            group by leader_name
+            order by sum(is_win) / count(is_win) desc
+            """.format(name_list=name_list)
+            leader_df = read_query(sql)
+            leader_df_build = GridOptionsBuilder.from_dataframe(leader_df)
+            leader_df_build.configure_default_column(groupable=True, value=True, enableRowGroup=True, aggFunc='sum', editable=True)
+            leader_df_build.configure_pagination(True, False, 12)
+            leader_df_build.configure_column("胜率", header_name='胜率', type=["numericColumn","numberColumnFilter"], valueFormatter="(data.胜率*100).toFixed(1)+'%'", aggFunc='sum')
+            leader_df_builder = leader_df_build.build()
+            AgGrid(
+                leader_df, 
+                height=410,
+                width=None,
+                allow_unsafe_jscode=True, #Set it to True to allow jsfunction to be injected
+                theme='streamlit',
+                fit_columns_on_grid_load=True,
+                gridOptions=leader_df_builder
+                )
 
+            sql2 = """
+            select wonder_name                 as "奇迹名称",
+                   sum(is_win)                 as "胜场",
+                   count(is_win)               as "总数",
+                   sum(is_win) / count(is_win) as "胜率"
+            from tta_pulse_wonder_detail
+            where player in ({name_list}) and wonder_name <> '无'
+            group by wonder_name
+            order by sum(is_win) / count(is_win) desc
+            """.format(name_list=name_list)
+            wonder_df = read_query(sql2)
+            wonder_df_build = GridOptionsBuilder.from_dataframe(wonder_df)
+            wonder_df_build.configure_default_column(groupable=True, value=True, enableRowGroup=True, aggFunc='sum', editable=True)
+            wonder_df_build.configure_pagination(True, False, 16)
+            wonder_df_build.configure_column("胜率", header_name='胜率', type=["numericColumn","numberColumnFilter"], valueFormatter="(data.胜率*100).toFixed(1)+'%'", aggFunc='sum')
+            wonder_df_builder = wonder_df_build.build()
+            AgGrid(
+                wonder_df, 
+                width=None,
+                allow_unsafe_jscode=True, #Set it to True to allow jsfunction to be injected
+                theme='streamlit',
+                fit_columns_on_grid_load=True,
+                gridOptions=wonder_df_builder
+                )
+
+        with st.expander('对方所使用卡牌胜率'):
+            sql = """
+            select leader_name                 as "领袖名称",
+                   sum(is_win)                 as "胜场",
+                   count(is_win)               as "总数",
+                   sum(is_win) / count(is_win) as "胜率"
+            from (select distinct code
+                  from tta_pulse_leader_detail
+                  where player in ({name_list})) as a
+                     inner join
+                 (select *
+                  from tta_pulse_leader_detail
+                  where player not in ({name_list})) as b
+                 on a.code = b.code
+            group by leader_name
+            having leader_name <> '无'
+            order by sum(is_win) / count(is_win) desc
+
+            """.format(name_list=name_list)
+            leader_df = read_query(sql)
+            leader_df_build = GridOptionsBuilder.from_dataframe(leader_df)
+            leader_df_build.configure_default_column(groupable=True, value=True, enableRowGroup=True, aggFunc='sum', editable=True)
+            leader_df_build.configure_pagination(True, False, 12)
+            leader_df_build.configure_column("胜率", header_name='胜率', type=["numericColumn","numberColumnFilter"], valueFormatter="(data.胜率*100).toFixed(1)+'%'", aggFunc='sum')
+            leader_df_builder = leader_df_build.build()
+            AgGrid(
+                leader_df, 
+                height=410,
+                width=None,
+                allow_unsafe_jscode=True, #Set it to True to allow jsfunction to be injected
+                theme='streamlit',
+                fit_columns_on_grid_load=True,
+                gridOptions=leader_df_builder
+                )
+
+            sql2 = """
+            select wonder_name                 as "奇迹名称",
+                   sum(is_win)                 as "胜场",
+                   count(is_win)               as "总数",
+                   sum(is_win) / count(is_win) as "胜率"
+            from (select distinct code
+                  from tta_pulse_wonder_detail
+                  where player in ({name_list})) as a
+                     inner join
+                 (select *
+                  from tta_pulse_wonder_detail
+                  where player not in ({name_list})) as b
+                 on a.code = b.code
+            group by wonder_name
+            having wonder_name <> '无'
+            order by sum(is_win) / count(is_win) desc
+            """.format(name_list=name_list)
+            wonder_df = read_query(sql2)
+            wonder_df_build = GridOptionsBuilder.from_dataframe(wonder_df)
+            wonder_df_build.configure_default_column(groupable=True, value=True, enableRowGroup=True, aggFunc='sum', editable=True)
+            wonder_df_build.configure_pagination(True, False, 16)
+            wonder_df_build.configure_column("胜率", header_name='胜率', type=["numericColumn","numberColumnFilter"], valueFormatter="(data.胜率*100).toFixed(1)+'%'", aggFunc='sum')
+            wonder_df_builder = wonder_df_build.build()
+            AgGrid(
+                wonder_df, 
+                width=None,
+                allow_unsafe_jscode=True, #Set it to True to allow jsfunction to be injected
+                theme='streamlit',
+                fit_columns_on_grid_load=True,
+                gridOptions=wonder_df_builder
+                )
 
 if page == '观战查询':
     # c1, c2 = st.columns([3,1])
@@ -377,6 +501,7 @@ if page == '观战查询':
                 fit_columns_on_grid_load=True,
                 gridOptions=player_win_rate_df_group_builder
                 )
+            
     
     
     
