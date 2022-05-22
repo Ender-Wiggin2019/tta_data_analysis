@@ -264,7 +264,8 @@ if page == '玩家查询':
             leader_df_build.configure_column("胜率", header_name='胜率', type=["numericColumn","numberColumnFilter"], valueFormatter="(data.胜率*100).toFixed(1)+'%'", aggFunc='sum')
             leader_df_builder = leader_df_build.build()
             AgGrid(
-                leader_df, 
+                leader_df,
+                key='001',
                 height=410,
                 width=None,
                 allow_unsafe_jscode=True, #Set it to True to allow jsfunction to be injected
@@ -291,6 +292,7 @@ if page == '玩家查询':
             wonder_df_builder = wonder_df_build.build()
             AgGrid(
                 wonder_df, 
+                key='002',
                 width=None,
                 allow_unsafe_jscode=True, #Set it to True to allow jsfunction to be injected
                 theme='streamlit',
@@ -325,6 +327,7 @@ if page == '玩家查询':
             leader_df_builder = leader_df_build.build()
             AgGrid(
                 leader_df, 
+                key='003',
                 height=410,
                 width=None,
                 allow_unsafe_jscode=True, #Set it to True to allow jsfunction to be injected
@@ -358,6 +361,7 @@ if page == '玩家查询':
             wonder_df_builder = wonder_df_build.build()
             AgGrid(
                 wonder_df, 
+                key='004',
                 width=None,
                 allow_unsafe_jscode=True, #Set it to True to allow jsfunction to be injected
                 theme='streamlit',
