@@ -5,3 +5,7 @@ backgroundColor="#f0f0f5"
 secondaryBackgroundColor="#cbd6ee"
 textColor="#262730"
 font="sans serif"
+
+# [browser] # This ip and port will show in command prompt
+# serverAddress = "tta.ender.lol" # Put your Local IP or Domain Name
+# serverPort = 8501
